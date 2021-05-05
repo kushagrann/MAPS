@@ -11,7 +11,7 @@ import sympy
 
 import scipy.linalg as sl
 
-import clebschGordan as CG
+from . import clebschGordan as CG
 
 from scipy.interpolate import interp1d
 from astroML.linear_model import LinearRegression
