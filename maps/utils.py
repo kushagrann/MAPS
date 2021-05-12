@@ -45,9 +45,9 @@ def angular_power_spectrum(pta_anis, clm, burn = 4000):
         for ii in range(clm.shape[0]):
             new_clm2[ii] = convert_blm_params_to_clm(pta_anis, clm[ii]) ** 2
             
-    
     if clm.ndim < 2:
         C_l = np.full((maxl), 0.0)
+        C_l_err = np.full((maxl), 0.0)
     else:
         C_l = np.full((maxl, new_clm2[burn:, :].shape[0]), 0.0)
     
@@ -58,6 +58,7 @@ def angular_power_spectrum(pta_anis, clm, burn = 4000):
         if ll == 0:
             if clm.ndim < 2:
                 C_l[ll] = new_clm2[ll]
+                C_l_err[ll] = 2 * np.abs(clm[ll]) * clm_err[ll]
             else:
                 C_l[ll] = new_clm2[burn:, ll]
             idx += 1
@@ -68,12 +69,16 @@ def angular_power_spectrum(pta_anis, clm, burn = 4000):
             
             if clm.ndim < 2:
                 C_l[ll] = np.sum(new_clm2[subset]) / (2 * ll + 1)
+                C_l_err[ll] = np.sum(2 * np.abs(clm[subset]) * clm_err[subset]) / (2 * ll + 1)
             else:
                 C_l[ll] = np.sum(new_clm2[burn:, subset], axis = 1) / (2 * ll + 1)
             
             idx = subset[-1]
         
-    return C_l
+    if clm.ndim < 2:
+        return C_l, C_l_err
+    else:
+        return C_l
 
 def draw_random_sample(ip_arr, bins = 50, nsamp = 10):
     
