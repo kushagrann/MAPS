@@ -31,36 +31,48 @@ def convert_blm_params_to_clm(pta_anis, blm_params):
     
     return clms_rvylm
 
-def angular_power_spectrum(anis_pta, clm2, burn = 4000):
+def angular_power_spectrum(pta_anis, clm, burn = 4000):
     
-    maxl = int(np.sqrt(clm2.shape[1]))
-    
-    if anis_pta.mode == 'power_basis':
-        new_clm2 = clm2
+    if clm.ndim < 2: 
+        maxl = int(np.sqrt(clm.shape[0]))
     else:
-        new_clm2 = np.full(clm2.shape, 0.0)
-        for ii in range(clm2.shape[0]):
-            new_clm2[ii] = convert_blm_params_to_clm(pta_anis, clm2[ii])
+        maxl = int(np.sqrt(clm.shape[1]))
+        
+    if pta_anis.mode == 'power_basis':
+        new_clm2 = clm ** 2
+    else:
+        new_clm2 = np.full(clm.shape, 0.0)
+        for ii in range(clm.shape[0]):
+            new_clm2[ii] = convert_blm_params_to_clm(pta_anis, clm[ii]) ** 2
             
     
-    C_l = np.full((maxl, new_clm2[burn:, :].shape[0]), 0.0)
+    if clm.ndim < 2:
+        C_l = np.full((maxl), 0.0)
+    else:
+        C_l = np.full((maxl, new_clm2[burn:, :].shape[0]), 0.0)
     
     idx = 0
     
     for ll in range(maxl):
         
         if ll == 0:
-            C_l[ll] = new_clm2[burn:, ll]
+            if clm.ndim < 2:
+                C_l[ll] = new_clm2[ll]
+            else:
+                C_l[ll] = new_clm2[burn:, ll]
             idx += 1
             
         else:
             subset_len = 2 * ll + 1
             subset = np.arange(idx, idx + subset_len)
             
-            C_l[ll] = np.sum(new_clm2[burn:, subset], axis = 1) / (2 * ll + 1)
+            if clm.ndim < 2:
+                C_l[ll] = np.sum(new_clm2[subset]) / (2 * ll + 1)
+            else:
+                C_l[ll] = np.sum(new_clm2[burn:, subset], axis = 1) / (2 * ll + 1)
             
             idx = subset[-1]
-    
+        
     return C_l
 
 def draw_random_sample(ip_arr, bins = 50, nsamp = 10):
