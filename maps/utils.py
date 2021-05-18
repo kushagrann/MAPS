@@ -41,7 +41,7 @@ def angular_power_spectrum(pta_anis, clm, burn = 4000, clm_err = []):
     if pta_anis.mode == 'power_basis':
         new_clm2 = clm ** 2
     else:
-        new_clm2 = np.full((clm.shape[0], pta_anis.l_max), 0.0)
+        new_clm2 = np.full((clm.shape[0], (pta_anis.l_max + 1) ** 2), 0.0)
         for ii in range(clm.shape[0]):
             new_clm2[ii] = convert_blm_params_to_clm(pta_anis, clm[ii]) ** 2
             
