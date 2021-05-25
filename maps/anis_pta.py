@@ -270,7 +270,7 @@ class anis_pta():
             clms = np.matmul(fac1, fac2)
         else:
             
-            diag_identity = np.diag(np.full(F_mat_clm[0], 1.0))
+            diag_identity = np.diag(np.full(F_mat_clm.shape[1], 1.0))
             
             fac1 = sl.pinvh(np.matmul(F_mat_clm.transpose(), np.matmul(N_mat_inv, F_mat_clm)) + alpha * diag_identity)
         
