@@ -222,16 +222,24 @@ class anis_pta():
         N_mat[np.diag_indices(N_mat.shape[0])] = self.sig ** 2
         N_mat_inv[np.diag_indices(N_mat_inv.shape[0])] = 1 / self.sig ** 2
         
-        fac1 = sl.pinvh(np.matmul(self.F_mat.transpose(), np.matmul(N_mat_inv, self.F_mat)), cond = cutoff)
-        
-        fac2 = np.matmul(self.F_mat.transpose(), np.matmul(N_mat_inv, self.rho))
-        
-        pow_err = np.sqrt(np.diag(fac1))
-        
         if not use_regularize:
+            
+            fac1 = sl.pinvh(np.matmul(self.F_mat.transpose(), np.matmul(N_mat_inv, self.F_mat)), cond = cutoff)
+
+            fac2 = np.matmul(self.F_mat.transpose(), np.matmul(N_mat_inv, self.rho))
+
+            pow_err = np.sqrt(np.diag(fac1))
+            
             power = np.matmul(fac1, fac2)
             
         else:
+            
+            diag_identity = np.diag(np.full(self.F_mat.shape[1], 1))
+            
+            fac1 = sl.pinvh(np.matmul(self.F_mat.transpose(), np.matmul(N_mat_inv, self.F_mat)) + alpha * diag_identity)
+            
+            pow_err = np.sqrt(np.diag(fac1))
+            
             clf = LinearRegression(regularization = reg_type, fit_intercept = False, kwds = dict(alpha = alpha))
             
             clf.fit(self.F_mat, self.rho, self.sig)
@@ -253,13 +261,19 @@ class anis_pta():
         
         F_mat_clm = self.Gamma_lm.transpose()
         
-        fac1 = sl.pinvh(np.matmul(F_mat_clm.transpose(), np.matmul(N_mat_inv, F_mat_clm)), cond = cutoff)
-        
-        fac2 = np.matmul(F_mat_clm.transpose(), np.matmul(N_mat_inv, self.rho))
-        
         if not use_regularize:
+            
+            fac1 = sl.pinvh(np.matmul(F_mat_clm.transpose(), np.matmul(N_mat_inv, F_mat_clm)), cond = cutoff)
+        
+            fac2 = np.matmul(F_mat_clm.transpose(), np.matmul(N_mat_inv, self.rho))
+            
             clms = np.matmul(fac1, fac2)
         else:
+            
+            diag_identity = np.diag(np.full(self.F_mat_clm[0], 1.0))
+            
+            fac1 = sl.pinvh(np.matmul(F_mat_clm.transpose(), np.matmul(N_mat_inv, F_mat_clm)) + alpha * diag_identity)
+        
             clf = LinearRegression(regularization = reg_type, fit_intercept = False, kwds = dict(alpha = alpha))
             
             clf.fit(F_mat_clm, self.rho, self.sig)
