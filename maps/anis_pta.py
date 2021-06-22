@@ -236,9 +236,9 @@ class anis_pta():
             
             diag_identity = np.diag(np.full(self.F_mat.shape[1], 1))
             
-            fac1 = sl.pinvh(np.matmul(self.F_mat.transpose(), np.matmul(N_mat_inv, self.F_mat)) + alpha * diag_identity)
+            fac1r = sl.pinvh(np.matmul(self.F_mat.transpose(), np.matmul(N_mat_inv, self.F_mat)) + alpha * diag_identity)
             
-            pow_err = np.sqrt(np.diag(fac1))
+            pow_err = np.sqrt(np.diag(fac1r))
             
             clf = LinearRegression(regularization = reg_type, fit_intercept = False, kwds = dict(alpha = alpha))
             
@@ -268,11 +268,14 @@ class anis_pta():
             fac2 = np.matmul(F_mat_clm.transpose(), np.matmul(N_mat_inv, self.rho))
             
             clms = np.matmul(fac1, fac2)
+            
+            clm_err = np.sqrt(np.diag(fac1))
+            
         else:
             
             diag_identity = np.diag(np.full(F_mat_clm.shape[1], 1.0))
             
-            fac1 = sl.pinvh(np.matmul(F_mat_clm.transpose(), np.matmul(N_mat_inv, F_mat_clm)) + alpha * diag_identity)
+            fac1r = sl.pinvh(np.matmul(F_mat_clm.transpose(), np.matmul(N_mat_inv, F_mat_clm)) + alpha * diag_identity)
         
             clf = LinearRegression(regularization = reg_type, fit_intercept = False, kwds = dict(alpha = alpha))
             
@@ -280,7 +283,7 @@ class anis_pta():
             
             clms = clf.coef_
             
-        clm_err = np.sqrt(np.diag(fac1))
+            clm_err = np.sqrt(np.diag(fac1r))
         
         return clms, clm_err
         
