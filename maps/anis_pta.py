@@ -214,7 +214,48 @@ class anis_pta():
 
         return clm
     
-    def max_lkl_pixel(self, cutoff = 0, return_fac1 = False, use_regularize = True, reg_type = 'l2', alpha = 0.1):
+    def optimum_ridge_reg(self, alphas = []):
+        
+        if len(alphas) == 0:
+            alphas = 10 ** np.linspace(-7, 5, 1000)
+        else:
+            alphas = alphas
+            
+        #Relevant values when no regularization is applied
+        clm00, clm_err00 = pta.max_lkl_clm(alpha = 0)
+        sn00 = clm00[0] / clm_err00[0]
+        
+        if sn00 >= 1.0:
+            print("There is enough S/N here to not require regularization!")
+        
+        #Calculate the S/N for the c00 component over different alphas
+        clm0 = np.full((len(alphas)), 0.0)
+        clm0_err = np.full((len(alphas)), 0.0)
+        sn0 = np.full((len(alphas)), 0.0)
+        
+        for ii, aa in enumerate(alphas):
+            
+            clm, clm_err = pta.max_lkl_clm(use_regularize = True, reg_type = 'l2', alpha = aa)
+            
+            clm0[ii] = clm[0]
+            clm0_err[ii] = clm_err[0]
+            sn0[ii] = clm[0] / clm_err[0]
+        
+        ind_max = np.argmax(sn0)
+        opt_alpha = alphas[ind_max]
+        
+        if sn0[ind_max] >= sn00:
+            return opt_alpha
+        else:
+            print("The S/N corresponding to the optimum regularization was worse than using no regularization! Recommend not using regularization!")
+            return None
+        
+    def max_lkl_pixel(self, cutoff = 0, return_fac1 = False, use_regularize = True, reg_type = 'l2', alpha = None):
+        
+        if alpha is None:
+            alpha = self.optimum_ridge_reg()
+        else:
+            alpha = alpha
         
         N_mat = np.zeros((len(self.rho), len(self.rho)))
         N_mat_inv = np.zeros((len(self.rho), len(self.rho)))
@@ -251,8 +292,13 @@ class anis_pta():
         else:
             return power, pow_err
     
-    def max_lkl_clm(self, cutoff = 0, use_regularize = True, reg_type = 'l2', alpha = 0.1):
+    def max_lkl_clm(self, cutoff = 0, use_regularize = True, reg_type = 'l2', alpha = None):
         
+        if alpha is None:
+            alpha = self.optimum_ridge_reg()
+        else:
+            alpha = alpha
+            
         N_mat = np.zeros((len(self.rho), len(self.rho)))
         N_mat_inv = np.zeros((len(self.rho), len(self.rho)))
         
