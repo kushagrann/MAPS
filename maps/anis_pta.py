@@ -265,7 +265,11 @@ class anis_pta():
         
         if not use_regularize:
             
-            fac1 = sl.pinvh(np.matmul(self.F_mat.transpose(), np.matmul(N_mat_inv, self.F_mat)), cond = cutoff)
+            sv = sl.svd(np.matmul(F_mat_clm.transpose(), np.matmul(N_mat_inv, F_mat_clm)), compute_uv = False)
+            
+            abs_cutoff = cutoff * np.max(sv)
+            
+            fac1 = sl.pinvh(np.matmul(F_mat_clm.transpose(), np.matmul(N_mat_inv, F_mat_clm)), cond = abs_cutoff)
 
             fac2 = np.matmul(self.F_mat.transpose(), np.matmul(N_mat_inv, self.rho))
 
@@ -309,7 +313,11 @@ class anis_pta():
         
         if not use_regularize:
             
-            fac1 = sl.pinvh(np.matmul(F_mat_clm.transpose(), np.matmul(N_mat_inv, F_mat_clm)), cond = cutoff)
+            sv = sl.svd(np.matmul(F_mat_clm.transpose(), np.matmul(N_mat_inv, F_mat_clm)), compute_uv = False)
+            
+            abs_cutoff = cutoff * np.max(sv)
+            
+            fac1 = sl.pinvh(np.matmul(F_mat_clm.transpose(), np.matmul(N_mat_inv, F_mat_clm)), cond = abs_cutoff)
         
             fac2 = np.matmul(F_mat_clm.transpose(), np.matmul(N_mat_inv, self.rho))
             
