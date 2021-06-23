@@ -235,7 +235,7 @@ class anis_pta():
         
         for ii, aa in enumerate(alphas):
             
-            clm, clm_err = self.max_lkl_clm(use_regularize = True, reg_type = 'l2', alpha = aa)
+            clm, clm_err = self.max_lkl_clm(use_svd_reg = False, reg_type = 'l2', alpha = aa)
             
             clm0[ii] = clm[0]
             clm0_err[ii] = clm_err[0]
@@ -250,12 +250,50 @@ class anis_pta():
             print("The S/N corresponding to the optimum regularization was worse than using no regularization! Recommend not using regularization!")
             return None
         
-    def max_lkl_pixel(self, cutoff = 0, return_fac1 = False, use_svd_reg = False, reg_type = 'l2', alpha = None):
+    def optimum_svd_reg(self, cutoffs = []):
+        
+        if len(cutoffs) == 0:
+            cutoffs = np.linspace(0, 1, 20)
+        else:
+            cutoffs = cutoffs
+        
+        #Relevant values when no regularization is applied
+        clm00, clm_err00 = self.max_lkl_clm(use_svd_reg = True, cutoff = 0)
+        sn00 = clm00[0] / clm_err00[0]
+        
+        if sn00 >= 1.0:
+            print("There is enough S/N here to not require regularization!")
+        
+        #Calculate the S/N for the c00 component over different alphas
+        clm0 = np.full((len(cutoffs)), 0.0)
+        clm0_err = np.full((len(cutoffs)), 0.0)
+        sn0 = np.full((len(cutoffs)), 0.0)
+        
+        for ii, aa in enumerate(cutoffs):
+            
+            clm, clm_err = self.max_lkl_clm(use_svd_reg = True, cutoff = aa)
+            
+            clm0[ii] = clm[0]
+            clm0_err[ii] = clm_err[0]
+            sn0[ii] = clm[0] / clm_err[0]
+        
+        best_vals = np.nanmean(sn0[-5:])
+        opt_idx = np.where(sn0 == best_vals)[0][0]
+        
+        return cutoffs[opt_idx]
+        
+        
+    def max_lkl_pixel(self, cutoff = None, return_fac1 = False, use_svd_reg = False, reg_type = 'l2', alpha = None):
         
         if alpha is None and not use_svd_reg:
             alpha = self.optimum_ridge_reg()
         else:
             alpha = alpha
+            
+        if cutoff is None and use_svd_reg:
+            cutoff = self.optimum_svd_reg()
+        else:
+            cutoff = cutoff
         
         N_mat = np.zeros((len(self.rho), len(self.rho)))
         N_mat_inv = np.zeros((len(self.rho), len(self.rho)))
@@ -296,12 +334,17 @@ class anis_pta():
         else:
             return power, pow_err
     
-    def max_lkl_clm(self, cutoff = 0, use_svd_reg = False, reg_type = 'l2', alpha = None):
+    def max_lkl_clm(self, cutoff = None, use_svd_reg = False, reg_type = 'l2', alpha = None):
         
         if alpha is None and not use_svd_reg:
             alpha = self.optimum_ridge_reg()
         else:
             alpha = alpha
+            
+        if cutoff is None and use_svd_reg:
+            cutoff = self.optimum_svd_reg()
+        else:
+            cutoff = cutoff
             
         N_mat = np.zeros((len(self.rho), len(self.rho)))
         N_mat_inv = np.zeros((len(self.rho), len(self.rho)))
