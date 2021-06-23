@@ -263,7 +263,7 @@ class anis_pta():
         N_mat[np.diag_indices(N_mat.shape[0])] = self.sig ** 2
         N_mat_inv[np.diag_indices(N_mat_inv.shape[0])] = 1 / self.sig ** 2
         
-        if not use_regularize:
+        if use_svd_reg:
             
             sv = sl.svd(np.matmul(F_mat_clm.transpose(), np.matmul(N_mat_inv, F_mat_clm)), compute_uv = False)
             
@@ -311,7 +311,7 @@ class anis_pta():
         
         F_mat_clm = self.Gamma_lm.transpose()
         
-        if not use_regularize:
+        if use_svd_reg:
             
             sv = sl.svd(np.matmul(F_mat_clm.transpose(), np.matmul(N_mat_inv, F_mat_clm)), compute_uv = False)
             
