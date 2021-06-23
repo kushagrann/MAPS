@@ -250,9 +250,9 @@ class anis_pta():
             print("The S/N corresponding to the optimum regularization was worse than using no regularization! Recommend not using regularization!")
             return None
         
-    def max_lkl_pixel(self, cutoff = 0, return_fac1 = False, use_regularize = True, reg_type = 'l2', alpha = None):
+    def max_lkl_pixel(self, cutoff = 0, return_fac1 = False, use_svd_reg = False, reg_type = 'l2', alpha = None):
         
-        if alpha is None:
+        if alpha is None and not use_svd_reg:
             alpha = self.optimum_ridge_reg()
         else:
             alpha = alpha
@@ -296,9 +296,9 @@ class anis_pta():
         else:
             return power, pow_err
     
-    def max_lkl_clm(self, cutoff = 0, use_regularize = True, reg_type = 'l2', alpha = None):
+    def max_lkl_clm(self, cutoff = 0, use_svd_reg = False, reg_type = 'l2', alpha = None):
         
-        if alpha is None:
+        if alpha is None and not use_svd_reg:
             alpha = self.optimum_ridge_reg()
         else:
             alpha = alpha
