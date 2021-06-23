@@ -287,11 +287,13 @@ class anis_pta():
         
         if alpha is None and not use_svd_reg:
             alpha = self.optimum_ridge_reg()
+            print(f"Using optimum alpha = {alpha}")
         else:
             alpha = alpha
             
         if cutoff is None and use_svd_reg:
             cutoff = self.optimum_svd_reg()
+            print(f"Using optimum cutoff = {cutoff}")
         else:
             cutoff = cutoff
         
@@ -338,11 +340,13 @@ class anis_pta():
         
         if alpha is None and not use_svd_reg:
             alpha = self.optimum_ridge_reg()
+            print(f"Using optimum alpha = {alpha}")
         else:
             alpha = alpha
             
         if cutoff is None and use_svd_reg:
             cutoff = self.optimum_svd_reg()
+            print(f"Using optimum cutoff = {cutoff}")
         else:
             cutoff = cutoff
             
