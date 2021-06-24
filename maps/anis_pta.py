@@ -226,7 +226,8 @@ class anis_pta():
         sn00 = clm00[0] / clm_err00[0]
         
         if sn00 >= 1.0:
-            print("There is enough S/N here to not require regularization!")
+            print("There is enough S/N here to not require regularization! Returning zero.")
+            return 0
         
         #Calculate the S/N for the c00 component over different alphas
         clm0 = np.full((len(alphas)), 0.0)
@@ -262,7 +263,8 @@ class anis_pta():
         sn00 = clm00[0] / clm_err00[0]
         
         if sn00 >= 1.0:
-            print("There is enough S/N here to not require regularization!")
+            print("There is enough S/N here to not require regularization! Returning zero.")
+            return 0
         
         #Calculate the S/N for the c00 component over different alphas
         clm0 = np.full((len(cutoffs)), 0.0)
