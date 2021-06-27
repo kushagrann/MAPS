@@ -244,11 +244,7 @@ class anis_pta():
         ind_max = np.argmax(sn0)
         opt_alpha = alphas[ind_max]
         
-        if sn0[ind_max] >= sn00:
-            return opt_alpha
-        else:
-            print("The S/N corresponding to the optimum regularization was worse than using no regularization! Recommend not using regularization!")
-            return None
+        return opt_alpha
         
     def optimum_svd_reg(self, cutoffs = []):
         
