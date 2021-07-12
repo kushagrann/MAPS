@@ -235,7 +235,7 @@ class anis_pta():
         
         for ii, aa in enumerate(alphas):
             
-            clm, clm_err = self.max_lkl_clm(use_svd_reg = False, reg_type = 'l2', alpha = aa)
+            clm, clm_err, _ = self.max_lkl_clm(use_svd_reg = False, reg_type = 'l2', alpha = aa)
             
             clm0[ii] = clm[0]
             clm0_err[ii] = clm_err[0]
@@ -267,7 +267,7 @@ class anis_pta():
         
         for ii, aa in enumerate(cutoffs):
             
-            clm, clm_err = self.max_lkl_clm(use_svd_reg = True, cutoff = aa)
+            clm, clm_err, _ = self.max_lkl_clm(use_svd_reg = True, cutoff = aa)
             
             clm0[ii] = clm[0]
             clm0_err[ii] = clm_err[0]
