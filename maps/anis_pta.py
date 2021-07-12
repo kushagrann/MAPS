@@ -299,9 +299,11 @@ class anis_pta():
         N_mat[np.diag_indices(N_mat.shape[0])] = self.sig ** 2
         N_mat_inv[np.diag_indices(N_mat_inv.shape[0])] = 1 / self.sig ** 2
         
-        if use_svd_reg:
-            
-            sv = sl.svd(np.matmul(self.F_mat.transpose(), np.matmul(N_mat_inv, self.F_mat)), compute_uv = False)
+        sv = sl.svd(np.matmul(self.F_mat.transpose(), np.matmul(N_mat_inv, self.F_mat)), compute_uv = False)
+        
+        cn = np.max(sv) / np.min(sv)
+        
+        if use_svd_reg: 
             
             abs_cutoff = cutoff * np.max(sv)
             
@@ -327,10 +329,7 @@ class anis_pta():
             
             power = clf.coef_
             
-        if return_fac1:
-            return power, pow_err, fac1
-        else:
-            return power, pow_err
+        return power, pow_err, cn
     
     def max_lkl_clm(self, cutoff = None, use_svd_reg = False, reg_type = 'l2', alpha = None):
         
@@ -354,9 +353,11 @@ class anis_pta():
         
         F_mat_clm = self.Gamma_lm.transpose()
         
+        sv = sl.svd(np.matmul(F_mat_clm.transpose(), np.matmul(N_mat_inv, F_mat_clm)), compute_uv = False)
+        
+        cn = np.max(sv) / np.min(sv)
+        
         if use_svd_reg:
-            
-            sv = sl.svd(np.matmul(F_mat_clm.transpose(), np.matmul(N_mat_inv, F_mat_clm)), compute_uv = False)
             
             abs_cutoff = cutoff * np.max(sv)
             
@@ -382,7 +383,7 @@ class anis_pta():
             
             clm_err = np.sqrt(np.diag(fac1r))
         
-        return clms, clm_err
+        return clms, clm_err, cn
         
     def prior(self, params):
         
