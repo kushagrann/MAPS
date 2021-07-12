@@ -222,7 +222,7 @@ class anis_pta():
             alphas = alphas
             
         #Relevant values when no regularization is applied
-        clm00, clm_err00 = self.max_lkl_clm(alpha = 0)
+        clm00, clm_err00, _ = self.max_lkl_clm(alpha = 0)
         sn00 = clm00[0] / clm_err00[0]
         
         if sn00 >= 1.0:
@@ -254,7 +254,7 @@ class anis_pta():
             cutoffs = cutoffs
         
         #Relevant values when no regularization is applied
-        clm00, clm_err00 = self.max_lkl_clm(use_svd_reg = True, cutoff = 0)
+        clm00, clm_err00, _ = self.max_lkl_clm(use_svd_reg = True, cutoff = 0)
         sn00 = clm00[0] / clm_err00[0]
         
         if sn00 >= 1.0:
