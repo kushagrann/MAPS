@@ -329,7 +329,7 @@ class anis_pta():
             
             power = clf.coef_
             
-        return power, pow_err, cn
+        return power, pow_err, cn, sv
     
     def max_lkl_clm(self, cutoff = None, use_svd_reg = False, reg_type = 'l2', alpha = None):
         
@@ -383,7 +383,7 @@ class anis_pta():
             
             clm_err = np.sqrt(np.diag(fac1r))
         
-        return clms, clm_err, cn
+        return clms, clm_err, cn, sv
         
     def prior(self, params):
         
