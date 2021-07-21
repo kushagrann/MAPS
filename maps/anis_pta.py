@@ -405,7 +405,7 @@ class anis_pta():
         ml_params = lsq.x
 
         jac = lsq.jac
-        ml_cov_err = np.sqrt(np.diag(np.linalg.pinv((jac.T.dot(jac))))
+        ml_cov_err = np.sqrt(np.diag(np.linalg.pinv((jac.T.dot(jac)))))
 
         return ml_params, ml_cov_err
         
