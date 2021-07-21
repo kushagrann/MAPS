@@ -1,4 +1,5 @@
 import numpy as np, sympy as sp, scipy.special as scsp
+import scipy.optimize as sopt
 
 import pickle, healpy as hp
 
@@ -11,7 +12,7 @@ import sympy
 
 import scipy.linalg as sl
 
-from . import clebschGordan as CG
+from . import clebschGordan as CG, utils
 
 from scipy.interpolate import interp1d
 from astroML.linear_model import LinearRegression
@@ -384,6 +385,29 @@ class anis_pta():
             clm_err = np.sqrt(np.diag(fac1r))
         
         return clms, clm_err, cn, sv
+
+    def max_lkl_sqrt_power(self):
+
+        #Use scipy's optimize.least_squares functionality
+
+        def residuals(x, obs_orf, obs_orf_err):
+    
+            amp2 = x[0]
+            clm_pred = utils.convert_blm_params_to_clm(self, x[1:])
+            sim_orf = amp2 * np.sum(clm_pred[:, np.newaxis] * self.Gamma_lm, axis = 0)    
+            
+            return (sim_orf - obs_orf) / obs_orf_err
+
+        init_guess = self.get_random_sample()
+
+        lsq = sopt.least_squares(residuals, x0 = init_guess, args = (self.rho, self.sig))
+
+        ml_params = lsq.x
+
+        jac = lsq.jac
+        ml_cov_err = np.sqrt(np.diag(np.linalg.pinv((jac.T.dot(jac))))
+
+        return ml_params, ml_cov_err
         
     def prior(self, params):
         
