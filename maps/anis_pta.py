@@ -392,14 +392,17 @@ class anis_pta():
 
         def residuals(x, obs_orf, obs_orf_err):
     
-            amp2 = 10 ** x[0]
+            amp2 = x[0]
+            x[1] = 1 #Fix b_00 to 1 for orthogonality
             clm_pred = utils.convert_blm_params_to_clm(self, x[1:])
             sim_orf = amp2 * np.sum(clm_pred[:, np.newaxis] * self.Gamma_lm, axis = 0)    
             
             return (sim_orf - obs_orf) / obs_orf_err
 
         init_guess = self.get_random_sample()
-
+        
+        init_guess[0] = 10 ** init_guess[0]
+        
         lsq = sopt.least_squares(residuals, x0 = init_guess, args = (self.rho, self.sig))
 
         ml_params = lsq.x
