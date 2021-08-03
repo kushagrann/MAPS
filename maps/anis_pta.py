@@ -402,7 +402,7 @@ class anis_pta():
         init_guess = self.get_random_sample()
         
         #Don't need the default log-unif range from get_random_sample. Use smthing more reasonable.
-        init_guess[0] = nr.uniform(0, 30)
+        init_guess[0] = nr.uniform(0, 3000)
         
         lsq = sopt.least_squares(residuals, x0 = init_guess, args = (self.rho, self.sig))
 
