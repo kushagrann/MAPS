@@ -401,7 +401,7 @@ class anis_pta():
 
         init_guess = self.get_random_sample()
         
-        #init_guess[0] = 10 ** init_guess[0]
+        init_guess[0] = 10 ** init_guess[0]
         
         lsq = sopt.least_squares(residuals, x0 = init_guess, args = (self.rho, self.sig))
 
