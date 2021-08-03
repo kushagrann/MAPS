@@ -538,7 +538,7 @@ class anis_pta():
 
             x0 = np.full(self.ndim, 0.0)
 
-            x0[0] = np.log10(nr.uniform(0, 30))
+            x0[0] = nr.uniform(np.log10(1e-5), np.log10(30))
 
             idx = 1
             for ll in range(self.blmax + 1):
@@ -680,7 +680,7 @@ class anis_hypermodel():
             
             x0[0] = nr.uniform(-0.5, 0.5 * (2 * self.num_models - 1), 1)
             
-            x0[1] = np.log10(nr.uniform(0, 30))
+            x0[1] = nr.uniform(np.log10(1e-5), np.log10(30))
 
             idx = 2
             for ll in range(self.blmax + 1):
