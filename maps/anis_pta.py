@@ -393,7 +393,7 @@ class anis_pta():
         def residuals(x, obs_orf, obs_orf_err):
     
             amp2 = x[0]
-            x[1] = 1 #Fix b_00 to 1 for orthogonality
+            #x[1] = 1 #Fix b_00 to 1 for orthogonality
             clm_pred = utils.convert_blm_params_to_clm(self, x[1:])
             sim_orf = amp2 * np.sum(clm_pred[:, np.newaxis] * self.Gamma_lm, axis = 0)    
             
