@@ -31,7 +31,7 @@ class anis_pta():
             self.xi = xi
         else:
             self.xi = self._get_xi()
-        self.rho = np.longdouble(rho)
+        self.rho = rho
         self.sig = sig
         self.l_max = l_max
         self.nside = nside
@@ -445,7 +445,7 @@ class anis_pta():
             return (sim_orf - obs_orf) / obs_orf_err
 
         #Get initial fit from function above. Includes initial guess
-        #init_guess = self.setup_lmfit_parameters(test)
+        #init_guess = self.setup_lmfit_parameters()
 
         #Setup lmfit minimizer and get solution
         mini = lmfit.Minimizer(residuals, params, fcn_args=(self.rho, self.sig))
