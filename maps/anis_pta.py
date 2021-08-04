@@ -445,10 +445,10 @@ class anis_pta():
             return (sim_orf - obs_orf) / obs_orf_err
 
         #Get initial fit from function above. Includes initial guess
-        init_guess = self.setup_lmfit_parameters(test)
+        #init_guess = self.setup_lmfit_parameters(test)
 
         #Setup lmfit minimizer and get solution
-        mini = lmfit.Minimizer(residuals, init_guess, fcn_args=(self.rho, self.sig))
+        mini = lmfit.Minimizer(residuals, params, fcn_args=(self.rho, self.sig))
         opt_params = mini.minimize()
 
         #Return the full output object for user.
