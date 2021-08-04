@@ -475,13 +475,13 @@ class anis_pta():
         init_guess[0] = nr.uniform(0, 3000)
 
         lsq = sopt.least_squares(residuals, x0 = init_guess, args = (self.rho, self.sig))
-
+        chi2 = lsq.cost
         ml_params = lsq.x
 
         jac = lsq.jac
         ml_cov_err = np.sqrt(np.diag(np.linalg.pinv((jac.T.dot(jac)))))
 
-        return ml_params, ml_cov_err
+        return ml_params, ml_cov_err, chi2
 
     def prior(self, params):
 
