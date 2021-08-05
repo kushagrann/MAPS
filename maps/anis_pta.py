@@ -412,7 +412,8 @@ class anis_pta():
 
                 elif mm != 0:
                     #x0[idx] = 0 #nr.uniform(0, 5)
-                    x0[idx] = np.array(['b_{}{}_amp'.format(ll, mm), 0, True, None, None, None, None])
+                    #Amplitude is always >= 0; initial guess set to small non-zero value
+                    x0[idx] = np.array(['b_{}{}_amp'.format(ll, mm), 1e-3, True, 0, None, None, None])
                     #x0[idx + 1] = 0 #nr.uniform(0, 2 * np.pi)
                     x0[idx + 1] = np.array(['b_{}{}_phase'.format(ll, mm), 0, True, 0, 2 * np.pi, None, None])
                     idx += 2
