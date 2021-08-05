@@ -428,7 +428,10 @@ class anis_pta():
 
         return params
 
-    def max_lkl_sqrt_power_lmfit(self, params):
+    def max_lkl_sqrt_power_lmfit(self, params = None, n_retry = 10):
+
+        if params is None:
+            params = self.setup_lmfit_parameters()
 
         def residuals(params, obs_orf, obs_orf_err):
 
@@ -451,6 +454,19 @@ class anis_pta():
         #Setup lmfit minimizer and get solution
         mini = lmfit.Minimizer(residuals, params, fcn_args=(self.rho, self.sig))
         opt_params = mini.minimize()
+
+        #Check if uncertainties exist;
+        #If not, some parameter stuck at boundary;
+        #Retry fit with new initial guess
+        opt_params_err = np.array([par.stderr for par in list(opt_params.params.values())])
+        n_trials = 0
+        while (None in opt_params_err) and (n_trials < n_retry):
+            print("Could not determine stderr with current guess. Trying again with new initial guess; Attempt {} of {}".format(n_trials + 1, n_retry))
+            new_params = self.setup_lmfit_parameters()
+            mini = lmfit.Minimizer(residuals, new_params, fcn_args=(self.rho, self.sig))
+            opt_params = mini.minimize()
+            opt_params_err = np.array([par.stderr for par in list(opt_params.params.values())])
+            n_trials += 1
 
         #Return the full output object for user.
         #Post-processing help in utils and lmfit documentation
