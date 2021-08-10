@@ -218,84 +218,7 @@ class anis_pta():
 
         return clm
 
-    def optimum_ridge_reg(self, alphas = []):
-
-        if len(alphas) == 0:
-            alphas = 10 ** np.linspace(-7, 5, 1000)
-        else:
-            alphas = alphas
-
-        #Relevant values when no regularization is applied
-        clm00, clm_err00, _, _ = self.max_lkl_clm(alpha = 0)
-        sn00 = clm00[0] / clm_err00[0]
-
-        if sn00 >= 1.0:
-            print(r"S/N for c$_00 > 1$")
-
-        #Calculate the S/N for the c00 component over different alphas
-        clm0 = np.full((len(alphas)), 0.0)
-        clm0_err = np.full((len(alphas)), 0.0)
-        sn0 = np.full((len(alphas)), 0.0)
-
-        for ii, aa in enumerate(alphas):
-
-            clm, clm_err, _, _ = self.max_lkl_clm(use_svd_reg = False, reg_type = 'l2', alpha = aa)
-
-            clm0[ii] = clm[0]
-            clm0_err[ii] = clm_err[0]
-            sn0[ii] = clm[0] / clm_err[0]
-
-        ind_max = np.argmax(sn0)
-        opt_alpha = alphas[ind_max]
-
-        return opt_alpha
-
-    def optimum_svd_reg(self, cutoffs = []):
-
-        if len(cutoffs) == 0:
-            cutoffs = np.linspace(0, 1, 20)
-        else:
-            cutoffs = cutoffs
-
-        #Relevant values when no regularization is applied
-        clm00, clm_err00, _, _ = self.max_lkl_clm(use_svd_reg = True, cutoff = 0)
-        sn00 = clm00[0] / clm_err00[0]
-
-        if sn00 >= 1.0:
-            print(r"S/N for c$_00 > 1$")
-
-        #Calculate the S/N for the c00 component over different alphas
-        clm0 = np.full((len(cutoffs)), 0.0)
-        clm0_err = np.full((len(cutoffs)), 0.0)
-        sn0 = np.full((len(cutoffs)), 0.0)
-
-        for ii, aa in enumerate(cutoffs):
-
-            clm, clm_err, _, _ = self.max_lkl_clm(use_svd_reg = True, cutoff = aa)
-
-            clm0[ii] = clm[0]
-            clm0_err[ii] = clm_err[0]
-            sn0[ii] = clm[0] / clm_err[0]
-
-        best_vals = np.nanmean(sn0[-5:])
-        opt_idx = np.where(sn0 == best_vals)[0][0]
-
-        return cutoffs[opt_idx]
-
-
-    def max_lkl_pixel(self, cutoff = None, return_fac1 = False, use_svd_reg = False, reg_type = 'l2', alpha = None):
-
-        if alpha is None and not use_svd_reg:
-            alpha = self.optimum_ridge_reg()
-            print(f"Using optimum alpha = {alpha}")
-        else:
-            alpha = alpha
-
-        if cutoff is None and use_svd_reg:
-            cutoff = self.optimum_svd_reg()
-            print(f"Using optimum cutoff = {cutoff}")
-        else:
-            cutoff = cutoff
+    def max_lkl_pixel(self, cutoff = 0, return_fac1 = False, use_svd_reg = False, reg_type = 'l2', alpha = 0):
 
         N_mat = np.zeros((len(self.rho), len(self.rho)))
         N_mat_inv = np.zeros((len(self.rho), len(self.rho)))
@@ -335,19 +258,7 @@ class anis_pta():
 
         return power, pow_err, cn, sv
 
-    def max_lkl_clm(self, cutoff = None, use_svd_reg = False, reg_type = 'l2', alpha = None):
-
-        if alpha is None and not use_svd_reg:
-            alpha = self.optimum_ridge_reg()
-            print(f"Using optimum alpha = {alpha}")
-        else:
-            alpha = alpha
-
-        if cutoff is None and use_svd_reg:
-            cutoff = self.optimum_svd_reg()
-            print(f"Using optimum cutoff = {cutoff}")
-        else:
-            cutoff = cutoff
+    def max_lkl_clm(self, cutoff = 0, use_svd_reg = False, reg_type = 'l2', alpha = 0):
 
         N_mat = np.zeros((len(self.rho), len(self.rho)))
         N_mat_inv = np.zeros((len(self.rho), len(self.rho)))
@@ -428,7 +339,7 @@ class anis_pta():
 
         return params
 
-    def max_lkl_sqrt_power_lmfit(self, params = None, n_retry = 10):
+    def max_lkl_sqrt_power(self, params = None, n_retry = 10):
 
         if params is None:
             params = self.setup_lmfit_parameters()
@@ -471,34 +382,6 @@ class anis_pta():
         #Return the full output object for user.
         #Post-processing help in utils and lmfit documentation
         return opt_params
-
-
-    def max_lkl_sqrt_power_scipy(self):
-
-        #Use scipy's optimize.least_squares functionality
-
-        def residuals(x, obs_orf, obs_orf_err):
-
-            amp2 = x[0]
-            x[1] = 1 #Fix b_00 to 1 for orthogonality
-            clm_pred = utils.convert_blm_params_to_clm(self, x[1:])
-            sim_orf = amp2 * np.sum(clm_pred[:, np.newaxis] * self.Gamma_lm, axis = 0)
-
-            return (sim_orf - obs_orf) / obs_orf_err
-
-        init_guess = self.get_random_sample()
-
-        #Don't need the default log-unif range from get_random_sample. Use smthing more reasonable.
-        init_guess[0] = nr.uniform(0, 3000)
-
-        lsq = sopt.least_squares(residuals, x0 = init_guess, args = (self.rho, self.sig))
-        chi2 = lsq.cost
-        ml_params = lsq.x
-
-        jac = lsq.jac
-        ml_cov_err = np.sqrt(np.diag(np.linalg.pinv((jac.T.dot(jac)))))
-
-        return ml_params, ml_cov_err, chi2
 
     def prior(self, params):
 
