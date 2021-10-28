@@ -22,7 +22,7 @@ from lmfit import minimize, Parameters
 
 class anis_pta():
 
-    def __init__(self, psrs_theta, psrs_phi, xi = [], rho = [], sig = [], l_max = 2, nside = 2,
+    def __init__(self, psrs_theta, psrs_phi, xi = [], rho = [], sig = [], os = 1, l_max = 2, nside = 2,
                 mode = 'power_basis', use_physical_prior = False):
 
         self.psrs_theta = psrs_theta
@@ -33,6 +33,7 @@ class anis_pta():
             self.xi = self._get_xi()
         self.rho = rho
         self.sig = sig
+        self.os = os
         self.l_max = l_max
         self.nside = nside
         self.use_physical_prior = use_physical_prior
@@ -398,15 +399,15 @@ class anis_pta():
         opt_clm = utils.convert_blm_params_to_clm(self, lp[1:])
         ml_orf = self.orf_from_clm(np.append(np.log10(lp[0]), opt_clm))
 
-        snm = np.sum(-1 * (rho / os - ml_orf) ** 2 / (2 * (sig / os) ** 2))
-        nm = np.sum(-1 * (rho / os) ** 2 / (2 * (sig / os) ** 2))
-        hdnm = np.sum(-1 * (rho / os - pure_hd) ** 2 / (2 * (sig / os) ** 2))
+        snm = np.sum(-1 * (self.rho / self.os - ml_orf) ** 2 / (2 * (self.sig / self.os) ** 2))
+        nm = np.sum(-1 * (self.rho / self.os) ** 2 / (2 * (self.sig / self.os) ** 2))
+        hdnm = np.sum(-1 * (self.rho / self.os - pure_hd) ** 2 / (2 * (self.sig / self.os) ** 2))
 
         total_sn = 2 * (snm - nm)
         iso_sn = 2 * (hdnm - nm)
 
         return total_sn, iso_sn
-        
+
     def prior(self, params):
 
         if self.mode == 'power_basis':
