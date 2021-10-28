@@ -383,6 +383,30 @@ class anis_pta():
         #Post-processing help in utils and lmfit documentation
         return opt_params
 
+    def signal_to_noise(self, lm_params = None, n_retry = 1):
+
+        pure_hd = self.get_pure_HD()
+
+        if lm_params is None:
+            lm_out = self.max_lkl_sqrt_power(n_retry = n_retry)
+        else:
+            lm_out = lm_params
+
+        lp = np.array(list(lm_out.params.valuesdict().values()))
+        lp_err = np.array([par.stderr for par in list(lm_out.params.values())])
+
+        opt_clm = utils.convert_blm_params_to_clm(self, lp[1:])
+        ml_orf = self.orf_from_clm(np.append(np.log10(lp[0]), opt_clm))
+
+        snm = np.sum(-1 * (rho / os - ml_orf) ** 2 / (2 * (sig / os) ** 2))
+        nm = np.sum(-1 * (rho / os) ** 2 / (2 * (sig / os) ** 2))
+        hdnm = np.sum(-1 * (rho / os - pure_hd) ** 2 / (2 * (sig / os) ** 2))
+
+        total_sn = 2 * (snm - nm)
+        iso_sn = 2 * (hdnm - nm)
+
+        return total_sn, iso_sn
+        
     def prior(self, params):
 
         if self.mode == 'power_basis':
