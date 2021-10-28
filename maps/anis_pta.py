@@ -34,7 +34,7 @@ class anis_pta():
 
         #Read in OS and normalize cross-correlations by OS.
         self.os = os
-        if len(rho) != 0 and len(sig) != 0:
+        if len(rho) > 0 and len(sig) > 0:
             self.rho = np.array(rho) / self.os
             self.sig = np.array(sig) / self.os
         else:
