@@ -407,7 +407,7 @@ class anis_pta():
         ml_orf = self.orf_from_clm(np.append(np.log10(lp[0]), opt_clm))
 
         snm = np.sum(-1 * (self.rho - ml_orf) ** 2 / (2 * (self.sig) ** 2))
-        nm = np.sum(-1 * (self.rho) ** 2 / (2 * (self.sig / self.os) ** 2))
+        nm = np.sum(-1 * (self.rho) ** 2 / (2 * (self.sig) ** 2))
         hdnm = np.sum(-1 * (self.rho - pure_hd) ** 2 / (2 * (self.sig) ** 2))
 
         total_sn = 2 * (snm - nm)
