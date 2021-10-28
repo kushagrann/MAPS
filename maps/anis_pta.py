@@ -22,7 +22,7 @@ from lmfit import minimize, Parameters
 
 class anis_pta():
 
-    def __init__(self, psrs_theta, psrs_phi, xi = [], rho = [], sig = [], os = 1, l_max = 2, nside = 2,
+    def __init__(self, psrs_theta, psrs_phi, xi = [], rho = [], sig = [], os = 1, l_max = 6, nside = 2,
                 mode = 'power_basis', use_physical_prior = False):
 
         self.psrs_theta = psrs_theta
@@ -31,9 +31,12 @@ class anis_pta():
             self.xi = xi
         else:
             self.xi = self._get_xi()
-        self.rho = rho
-        self.sig = sig
+
+        #Read in OS and normalize cross-correlations by OS.
         self.os = os
+        self.rho = rho / self.os
+        self.sig = sig / self.os
+
         self.l_max = l_max
         self.nside = nside
         self.use_physical_prior = use_physical_prior
