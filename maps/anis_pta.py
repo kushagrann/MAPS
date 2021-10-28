@@ -406,9 +406,9 @@ class anis_pta():
         opt_clm = utils.convert_blm_params_to_clm(self, lp[1:])
         ml_orf = self.orf_from_clm(np.append(np.log10(lp[0]), opt_clm))
 
-        snm = np.sum(-1 * (self.rho / self.os - ml_orf) ** 2 / (2 * (self.sig / self.os) ** 2))
-        nm = np.sum(-1 * (self.rho / self.os) ** 2 / (2 * (self.sig / self.os) ** 2))
-        hdnm = np.sum(-1 * (self.rho / self.os - pure_hd) ** 2 / (2 * (self.sig / self.os) ** 2))
+        snm = np.sum(-1 * (self.rho - ml_orf) ** 2 / (2 * (self.sig) ** 2))
+        nm = np.sum(-1 * (self.rho) ** 2 / (2 * (self.sig / self.os) ** 2))
+        hdnm = np.sum(-1 * (self.rho - pure_hd) ** 2 / (2 * (self.sig) ** 2))
 
         total_sn = 2 * (snm - nm)
         iso_sn = 2 * (hdnm - nm)
