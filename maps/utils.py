@@ -17,36 +17,6 @@ from . import anis_pta as ap
 from scipy.interpolate import interp1d
 from astroML.linear_model import LinearRegression
 
-def signal_to_noise(pta, lm_params = None, n_retry = 1):
-
-    if lm_params is None:
-        lm_out = pta.max_lkl_sqrt_power(n_retry = n_retry)
-    else:
-        lm_out = lm_params
-
-    pta_mono = ap.anis_pta(pta.psrs_theta, pta.psrs_phi, pta.xi, pta.rho, pta.sig, nside = pta.nside,
-                            l_max = 0, mode = pta.mode, os = pta.os)
-    lm_out_mono = pta_mono.max_lkl_sqrt_power(n_retry = n_retry)
-
-    lp = np.array(list(lm_out.params.valuesdict().values()))
-    lp_mono = np.array(list(lm_out_mono.params.valuesdict().values()))
-
-    opt_clm = utils.convert_blm_params_to_clm(pta, lp[1:])
-    opt_clm_mono = utils.convert_blm_params_to_clm(pta_mono, lp_mono[1:])
-
-    ml_orf = pta.orf_from_clm(np.append(np.log10(lp[0]), opt_clm))
-    hd_orf = pta_mono.orf_from_clm(np.append(np.log10(lp_mono[0]), opt_clm_mono))
-
-    snm = np.sum(-1 * (pta.rho - ml_orf) ** 2 / (2 * (pta.sig) ** 2))
-    nm = np.sum(-1 * (pta.rho) ** 2 / (2 * (pta.sig) ** 2))
-    hdnm = np.sum(-1 * (pta.rho - hd_orf) ** 2 / (2 * (pta.sig) ** 2))
-
-    total_sn = 2 * (snm - nm)
-    iso_sn = 2 * (hdnm - nm)
-    anis_sn = 2 * (snm - hdnm)
-
-    return total_sn, iso_sn
-
 def convert_blm_params_to_clm(pta_anis, blm_params):
 
     blm = pta_anis.sqrt_basis_helper.blm_params_2_blms(blm_params[1:])
@@ -62,6 +32,36 @@ def convert_blm_params_to_clm(pta_anis, blm_params):
 
     return clms_rvylm
 
+def signal_to_noise(pta, lm_params = None, n_retry = 1):
+
+    if lm_params is None:
+        lm_out = pta.max_lkl_sqrt_power(n_retry = n_retry)
+    else:
+        lm_out = lm_params
+
+    pta_mono = ap.anis_pta(pta.psrs_theta, pta.psrs_phi, pta.xi, pta.rho, pta.sig, nside = pta.nside,
+                            l_max = 0, mode = pta.mode, os = pta.os)
+    lm_out_mono = pta_mono.max_lkl_sqrt_power(n_retry = n_retry)
+
+    lp = np.array(list(lm_out.params.valuesdict().values()))
+    lp_mono = np.array(list(lm_out_mono.params.valuesdict().values()))
+
+    opt_clm = convert_blm_params_to_clm(pta, lp[1:])
+    opt_clm_mono = convert_blm_params_to_clm(pta_mono, lp_mono[1:])
+
+    ml_orf = pta.orf_from_clm(np.append(np.log10(lp[0]), opt_clm))
+    hd_orf = pta_mono.orf_from_clm(np.append(np.log10(lp_mono[0]), opt_clm_mono))
+
+    snm = np.sum(-1 * (pta.rho - ml_orf) ** 2 / (2 * (pta.sig) ** 2))
+    nm = np.sum(-1 * (pta.rho) ** 2 / (2 * (pta.sig) ** 2))
+    hdnm = np.sum(-1 * (pta.rho - hd_orf) ** 2 / (2 * (pta.sig) ** 2))
+
+    total_sn = 2 * (snm - nm)
+    iso_sn = 2 * (hdnm - nm)
+    anis_sn = 2 * (snm - hdnm)
+
+    return total_sn, iso_sn
+    
 def angular_power_spectrum(pta_anis, clm, burn = 4000, clm_err = []):
 
     if clm.ndim < 2:
