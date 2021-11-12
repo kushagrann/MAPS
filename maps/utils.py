@@ -60,8 +60,8 @@ def signal_to_noise(pta, lm_params = None, n_retry = 1):
     iso_sn = 2 * (hdnm - nm)
     anis_sn = 2 * (snm - hdnm)
 
-    return total_sn, iso_sn
-    
+    return total_sn, iso_sn, anis_sn
+
 def angular_power_spectrum(pta_anis, clm, burn = 4000, clm_err = []):
 
     if clm.ndim < 2:
