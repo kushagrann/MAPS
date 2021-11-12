@@ -380,7 +380,7 @@ class anis_pta():
         opt_params_err = np.array([par.stderr for par in list(opt_params.params.values())])
         n_trials = 0
         while (None in opt_params_err) and (n_trials < n_retry):
-            print("Could not determine stderr with current guess. Trying again with new initial guess; Attempt {} of {}".format(n_trials + 1, n_retry))
+            print("Could not determine stderr with current guess. Trying again with new initial guess or emcee; Attempt {} of {}".format(n_trials + 1, n_retry))
             new_params = self.setup_lmfit_parameters()
             mini = lmfit.Minimizer(residuals, new_params, fcn_args=(self.rho, self.sig))
             opt_params = mini.minimize()
@@ -404,14 +404,17 @@ class anis_pta():
         lp_err = np.array([par.stderr for par in list(lm_out.params.values())])
 
         opt_clm = utils.convert_blm_params_to_clm(self, lp[1:])
+        opt_clm_mono = utils.convert_blm_params_to_clm(self, lp[1:2])
         ml_orf = self.orf_from_clm(np.append(np.log10(lp[0]), opt_clm))
+        hd_orf = self.orf_from_clm(np.append(np.log10(lp[0]), opt_clm_mono))
 
         snm = np.sum(-1 * (self.rho - ml_orf) ** 2 / (2 * (self.sig) ** 2))
         nm = np.sum(-1 * (self.rho) ** 2 / (2 * (self.sig) ** 2))
-        hdnm = np.sum(-1 * (self.rho - pure_hd) ** 2 / (2 * (self.sig) ** 2))
+        hdnm = np.sum(-1 * (self.rho - hd_orf) ** 2 / (2 * (self.sig) ** 2))
 
         total_sn = 2 * (snm - nm)
         iso_sn = 2 * (hdnm - nm)
+        anis_sn = 2 * (snm - hdnm)
 
         return total_sn, iso_sn
 
