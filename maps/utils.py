@@ -24,7 +24,7 @@ def signal_to_noise(pta, lm_params = None, n_retry = 1):
     else:
         lm_out = lm_params
 
-    pta_mono = ap.anis_pta(pta.psrs_theta, pta.psrs_phi, pta.xi, pta.rho, pta.os, nside = pta.nside,
+    pta_mono = ap.anis_pta(pta.psrs_theta, pta.psrs_phi, pta.xi, pta.rho, pta.sig, nside = pta.nside,
                             l_max = 0, mode = pta.mode, os = pta.os)
     lm_out_mono = pta_mono.max_lkl_sqrt_power(n_retry = n_retry)
 
@@ -36,7 +36,7 @@ def signal_to_noise(pta, lm_params = None, n_retry = 1):
 
     ml_orf = pta.orf_from_clm(np.append(np.log10(lp[0]), opt_clm))
     hd_orf = pta_mono.orf_from_clm(np.append(np.log10(lp_mono[0]), opt_clm_mono))
-    
+
     snm = np.sum(-1 * (pta.rho - ml_orf) ** 2 / (2 * (pta.sig) ** 2))
     nm = np.sum(-1 * (pta.rho) ** 2 / (2 * (pta.sig) ** 2))
     hdnm = np.sum(-1 * (pta.rho - hd_orf) ** 2 / (2 * (pta.sig) ** 2))
