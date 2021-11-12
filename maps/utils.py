@@ -40,7 +40,7 @@ def signal_to_noise(pta, lm_params = None, n_retry = 1):
         lm_out = lm_params
 
     pta_mono = ap.anis_pta(pta.psrs_theta, pta.psrs_phi, pta.xi, pta.rho, pta.sig, nside = pta.nside,
-                            l_max = 0, mode = pta.mode, os = pta.os)
+                            l_max = 0, mode = pta.mode, os = 1) #OS already applied in pta
     lm_out_mono = pta_mono.max_lkl_sqrt_power(n_retry = n_retry)
 
     lp = np.array(list(lm_out.params.valuesdict().values()))
