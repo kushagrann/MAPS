@@ -347,9 +347,9 @@ class anis_pta():
 
         return params
 
-    def max_lkl_sqrt_power(self, params = None, n_retry = 10):
+    def max_lkl_sqrt_power(self, params = [], n_retry = 10):
 
-        if params is None:
+        if len(params) == 0:
             params = self.setup_lmfit_parameters()
         else:
             params = params
