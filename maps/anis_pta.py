@@ -326,15 +326,15 @@ class anis_pta():
 
                 elif mm == 0:
                     x0[idx] = 0 #nr.uniform(0, 5)
-                    x0[idx] = np.array(['b_{}{}'.format(ll, mm), 0, True, None, None, None, None])
+                    x0[idx] = np.array(['b_{}{}'.format(ll, mm), nr.uniform(-1, 1), True, None, None, None, None])
                     idx += 1
 
                 elif mm != 0:
                     #x0[idx] = 0 #nr.uniform(0, 5)
                     #Amplitude is always >= 0; initial guess set to small non-zero value
-                    x0[idx] = np.array(['b_{}{}_amp'.format(ll, mm), 1e-3, True, 0, None, None, None])
+                    x0[idx] = np.array(['b_{}{}_amp'.format(ll, mm), nr.uniform(0, 3), True, 0, None, None, None])
                     #x0[idx + 1] = 0 #nr.uniform(0, 2 * np.pi)
-                    x0[idx + 1] = np.array(['b_{}{}_phase'.format(ll, mm), 0, True, 0, 2 * np.pi, None, None])
+                    x0[idx + 1] = np.array(['b_{}{}_phase'.format(ll, mm), nr.uniform(0, 2 * np.pi), True, 0, 2 * np.pi, None, None])
                     idx += 2
 
         #Convert the numpy array to tuple of tuples to use with lmfit Parameter
@@ -375,20 +375,7 @@ class anis_pta():
         #Setup lmfit minimizer and get solution
         mini = lmfit.Minimizer(residuals, params, fcn_args=(self.rho, self.sig))
         opt_params = mini.minimize()
-
-        #Check if uncertainties exist;
-        #If not, some parameter stuck at boundary;
-        #Retry fit with new initial guess
-        opt_params_err = np.array([par.stderr for par in list(opt_params.params.values())])
-        n_trials = 0
-        while (None in opt_params_err) and (n_trials < n_retry):
-            print("Could not determine stderr with current guess. Trying again with new initial guess or emcee; Attempt {} of {}".format(n_trials + 1, n_retry))
-            new_params = self.setup_lmfit_parameters()
-            mini = lmfit.Minimizer(residuals, new_params, fcn_args=(self.rho, self.sig))
-            opt_params = mini.minimize()
-            opt_params_err = np.array([par.stderr for par in list(opt_params.params.values())])
-            n_trials += 1
-
+        
         #Return the full output object for user.
         #Post-processing help in utils and lmfit documentation
         return opt_params
