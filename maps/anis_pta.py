@@ -314,7 +314,7 @@ class anis_pta():
         #Format is (name, value, vary, min, max, expr, brute_step)
         x0 = np.full((self.ndim, 7), 0.0, dtype = object)
 
-        x0[0] = np.array(['A2', nr.uniform(0, 3000), True, 0.0, None, None, None])
+        x0[0] = np.array(['A2', nr.uniform(0, 3), True, 0.0, None, None, None])
 
         idx = 1
         for ll in range(self.blmax + 1):
@@ -347,9 +347,9 @@ class anis_pta():
 
         return params
 
-    def max_lkl_sqrt_power(self, params = self.setup_lmfit_parameters(), n_retry = 10):
+    def max_lkl_sqrt_power(self, params = np.array(()), n_retry = 10):
 
-        if params == 0:
+        if len(params) == 0:
             params = self.setup_lmfit_parameters()
         else:
             params = params
