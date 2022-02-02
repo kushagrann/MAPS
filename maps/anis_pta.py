@@ -351,6 +351,8 @@ class anis_pta():
 
         if params is None:
             params = self.setup_lmfit_parameters()
+        else:
+            params = params
 
         def residuals(params, obs_orf, obs_orf_err):
 
