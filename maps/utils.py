@@ -1,4 +1,4 @@
-import numpy as np, sympy as sp, scipy.special as scsp
+import numpy as np, sympy as sp, scipy.special as scsp, pandas as pd
 
 import pickle, healpy as hp
 
@@ -124,36 +124,37 @@ def draw_random_sample(ip_arr, bins = 50, nsamp = 10):
 
     return interp_func(rn_draw)
 
-def get_posterior_avg_skymap(anis_pta, chain, burn = 5000, n_draws = 10):
+def posterior_avg_skymap(anis_pta, chain, burn = 0, n_draws = 100):
+    """
+    Return a posterior averaged sky map given an (emcee) chain file sampling the posterior around the
+    maximum likelihood value
 
-    burned_chain = chain[burn:, :]
+    Parameters
+    --------------
+    anis_pta --> the anisotropic PTA object
+    chain --> chain file with posterior samples; expected to be a pd.DataFrame with rows = samples, params = columns
+    burn --> burn-in length (optional)
+    n_draws --> number of draws from chain file to generate the posterior averaged sky map
 
-    rn_draws = np.full((burned_chain.shape[1] - 4, n_draws), 0.0)
+    Returns
+    --------------
+    mean_map --> posterior averaged map
+    var_map --> standard deviation around mean_map
+    """
 
-    for ii in range(burned_chain.shape[1] - 4):
-
-        if ii == 1:
-            if anis_pta.mode == 'sqrt_power_basis':
-                rn_draws[ii] = np.repeat(1, repeats = n_draws)
-            else:
-                rn_draws[ii] = np.repeat(np.sqrt(4 * np.pi), repeats = n_draws)
-        else:
-            rn_draws[ii] = draw_random_sample(burned_chain[:, ii], bins = 20, nsamp = n_draws)
+    sub_chain = chain.sample(n = n_draws)
 
     pow_maps = np.full((n_draws, hp.pixelfunc.nside2npix(anis_pta.nside)), 0.0)
 
     for ii in range(n_draws):
 
         if anis_pta.mode == 'sqrt_power_basis':
-            clms = convert_blm_params_to_clm(anis_pta, rn_draws[1:, ii])
+            clms = convert_blm_params_to_clm(anis_pta, sub_chain.iloc[ii, 1:])
 
-            pow_maps[ii] = 10 ** rn_draws[0, ii] * ac.mapFromClm(clms, nside = anis_pta.nside)
+            pow_maps[ii] = 10 ** sub_chain.iloc[ii, 0] * ac.mapFromClm(clms, nside = anis_pta.nside)
 
         else:
 
-            pow_maps[ii] = 10 ** rn_draws[0, ii] * ac.mapFromClm(rn_draws[1:, ii], nside = anis_pta.nside)
+            pow_maps[ii] = 10 ** sub_chain.iloc[ii, 0] * ac.mapFromClm(sub_chain.iloc[ii, 1:], nside = anis_pta.nside)
 
-    pmean_map = np.mean(pow_maps, axis = 0)
-    var_map = np.std(pow_maps, axis = 0)
-
-    return pmean_map, var_map
+    return pow_maps
