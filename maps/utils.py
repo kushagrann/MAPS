@@ -142,7 +142,11 @@ def posterior_avg_skymap(anis_pta, chain, burn = 0, n_draws = 100):
     var_map --> standard deviation around mean_map
     """
 
-    sub_chain = chain.sample(n = n_draws)
+    chain_copy = chain.copy()
+
+    chain_copy.insert(loc = 1, column = 'b_00', value = 1)
+
+    sub_chain = chain_copy.sample(n = n_draws)
 
     pow_maps = np.full((n_draws, hp.pixelfunc.nside2npix(anis_pta.nside)), 0.0)
 
