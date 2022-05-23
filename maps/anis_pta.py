@@ -266,6 +266,32 @@ class anis_pta():
 
         return power, pow_err, cn, sv
 
+    def fisher_matrix_sph(self):
+
+        N_mat = np.zeros((len(self.rho), len(self.rho)))
+        N_mat_inv = np.zeros((len(self.rho), len(self.rho)))
+
+        N_mat[np.diag_indices(N_mat.shape[0])] = self.sig ** 2
+        N_mat_inv[np.diag_indices(N_mat_inv.shape[0])] = 1 / self.sig ** 2
+
+        F_mat_clm = self.Gamma_lm.transpose()
+
+        fisher_mat = np.matmul(F_mat_clm.transpose(), np.matmul(N_mat_inv, F_mat_clm)
+
+        return fisher_mat
+
+    def fisher_matrix_pixel(self):
+
+        N_mat = np.zeros((len(self.rho), len(self.rho)))
+        N_mat_inv = np.zeros((len(self.rho), len(self.rho)))
+
+        N_mat[np.diag_indices(N_mat.shape[0])] = self.sig ** 2
+        N_mat_inv[np.diag_indices(N_mat_inv.shape[0])] = 1 / self.sig ** 2
+
+        fisher_mat = np.matmul(self.F_mat.transpose(), np.matmul(N_mat_inv, self.F_mat)
+
+        return fisher_mat
+
     def max_lkl_clm(self, cutoff = 0, use_svd_reg = False, reg_type = 'l2', alpha = 0):
 
         N_mat = np.zeros((len(self.rho), len(self.rho)))
@@ -375,7 +401,7 @@ class anis_pta():
         #Setup lmfit minimizer and get solution
         mini = lmfit.Minimizer(residuals, params, fcn_args=(self.rho, self.sig))
         opt_params = mini.minimize()
-        
+
         #Return the full output object for user.
         #Post-processing help in utils and lmfit documentation
         return opt_params
