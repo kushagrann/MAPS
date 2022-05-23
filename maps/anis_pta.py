@@ -276,7 +276,7 @@ class anis_pta():
 
         F_mat_clm = self.Gamma_lm.transpose()
 
-        fisher_mat = np.matmul(F_mat_clm.transpose(), np.matmul(N_mat_inv, F_mat_clm)
+        fisher_mat = np.matmul(F_mat_clm.transpose(), np.matmul(N_mat_inv, F_mat_clm))
 
         return fisher_mat
 
@@ -288,7 +288,7 @@ class anis_pta():
         N_mat[np.diag_indices(N_mat.shape[0])] = self.sig ** 2
         N_mat_inv[np.diag_indices(N_mat_inv.shape[0])] = 1 / self.sig ** 2
 
-        fisher_mat = np.matmul(self.F_mat.transpose(), np.matmul(N_mat_inv, self.F_mat)
+        fisher_mat = np.matmul(self.F_mat.transpose(), np.matmul(N_mat_inv, self.F_mat))
 
         return fisher_mat
 
