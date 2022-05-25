@@ -62,54 +62,32 @@ def signal_to_noise(pta, lm_params = None):
 
     return total_sn, iso_sn, anis_sn
 
-def angular_power_spectrum(pta_anis, clm, burn = 4000, clm_err = []):
+def angular_power_spectrum(pta_anis, clm):
 
-    if clm.ndim < 2:
-        maxl = int(np.sqrt(clm.shape[0]))
-    else:
-        maxl = pta_anis.l_max
+    maxl = int(np.sqrt(clm.shape[0]))
 
-    if pta_anis.mode == 'power_basis':
-        new_clm2 = clm ** 2
-    else:
-        new_clm2 = np.full((clm.shape[0], (pta_anis.l_max + 1) ** 2), 0.0)
-        for ii in range(clm.shape[0]):
-            new_clm2[ii] = convert_blm_params_to_clm(pta_anis, clm[ii]) ** 2
+    new_clm2 = clm ** 2
 
-    if clm.ndim < 2:
-        C_l = np.full((maxl), 0.0)
-        C_l_err = np.full((maxl), 0.0)
-    else:
-        C_l = np.full((maxl, new_clm2[burn:, :].shape[0]), 0.0)
+    C_l = np.full((maxl), 0.0)
 
     idx = 0
 
     for ll in range(maxl):
 
         if ll == 0:
-            if clm.ndim < 2:
-                C_l[ll] = new_clm2[ll]
-                C_l_err[ll] = 2 * np.abs(clm[ll]) * clm_err[ll]
-            else:
-                C_l[ll] = new_clm2[burn:, ll]
+            C_l[ll] = new_clm2[ll]
+
             idx += 1
 
         else:
             subset_len = 2 * ll + 1
             subset = np.arange(idx, idx + subset_len)
 
-            if clm.ndim < 2:
-                C_l[ll] = np.sum(new_clm2[subset]) / (2 * ll + 1)
-                C_l_err[ll] = np.sum(2 * np.abs(clm[subset]) * clm_err[subset]) / (2 * ll + 1)
-            else:
-                C_l[ll] = np.sum(new_clm2[burn:, subset], axis = 1) / (2 * ll + 1)
+            C_l[ll] = np.sum(new_clm2[subset]) / (2 * ll + 1)
 
             idx = subset[-1]
 
-    if clm.ndim < 2:
-        return C_l, C_l_err
-    else:
-        return C_l
+    return C_l
 
 def draw_random_sample(ip_arr, bins = 50, nsamp = 10):
 
@@ -124,9 +102,10 @@ def draw_random_sample(ip_arr, bins = 50, nsamp = 10):
 
     return interp_func(rn_draw)
 
-def posterior_avg_skymap(anis_pta, chain, burn = 0, n_draws = 100):
+def posterior_sampled_Cl_skymap(anis_pta, chain, burn = 0, n_draws = 100):
     """
-    Return a posterior averaged sky map given an (emcee) chain file sampling the posterior around the
+    Return collection of sky maps randomly drawn from posterior
+    given an (emcee) chain file sampling the posterior around the
     maximum likelihood value
 
     Parameters
@@ -138,8 +117,8 @@ def posterior_avg_skymap(anis_pta, chain, burn = 0, n_draws = 100):
 
     Returns
     --------------
-    mean_map --> posterior averaged map
-    var_map --> standard deviation around mean_map
+    pow_map --> (n_draws x n_pixel) numpy array of maps corresponding to n_draws from posterior.
+    Cl --> (n_draws x n_Cl) numpy array of C_l values corresponding to n_draws from posterior,
     """
 
     chain_copy = chain.copy()
@@ -149,16 +128,16 @@ def posterior_avg_skymap(anis_pta, chain, burn = 0, n_draws = 100):
     sub_chain = chain_copy.sample(n = n_draws)
 
     pow_maps = np.full((n_draws, hp.pixelfunc.nside2npix(anis_pta.nside)), 0.0)
+    post_cl = np.full((n_draws, anis_pta.l_max + 1), 0.0)
 
     for ii in range(n_draws):
 
-        if anis_pta.mode == 'sqrt_power_basis':
-            clms = convert_blm_params_to_clm(anis_pta, sub_chain.iloc[ii, 1:])
+        clms = convert_blm_params_to_clm(anis_pta, sub_chain.iloc[ii, 1:])
 
-            pow_maps[ii] = 10 ** sub_chain.iloc[ii, 0] * ac.mapFromClm(clms, nside = anis_pta.nside)
+        Cl = angular_power_spectrum(anis_pta, clms)
 
-        else:
+        pow_maps[ii] = sub_chain.iloc[ii, 0] * ac.mapFromClm(clms, nside = anis_pta.nside)
 
-            pow_maps[ii] = 10 ** sub_chain.iloc[ii, 0] * ac.mapFromClm(sub_chain.iloc[ii, 1:], nside = anis_pta.nside)
+        post_Cl[ii] = Cl
 
-    return pow_maps
+    return pow_maps, post_Cl
