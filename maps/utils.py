@@ -128,7 +128,7 @@ def posterior_sampled_Cl_skymap(anis_pta, chain, burn = 0, n_draws = 100):
     sub_chain = chain_copy.sample(n = n_draws)
 
     pow_maps = np.full((n_draws, hp.pixelfunc.nside2npix(anis_pta.nside)), 0.0)
-    post_cl = np.full((n_draws, anis_pta.l_max + 1), 0.0)
+    post_Cl = np.full((n_draws, anis_pta.l_max + 1), 0.0)
 
     for ii in range(n_draws):
 
