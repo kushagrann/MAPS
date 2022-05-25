@@ -13,7 +13,7 @@ class clebschGordan():
     def __init__(self, l_max):
         
         self.almax = int(l_max)
-        self.blmax = int(self.almax)  #Use full l_max as prescribed in anis_pta, i.e. don't divide by 2.
+        self.blmax = int(self.almax / 2.)  #Use full l_max as prescribed in anis_pta, i.e. don't divide by 2.
         
         ## size of arrays: for blms its only non-negative m values but for alms it is all of them
         self.alm_size = (self.almax + 1)**2

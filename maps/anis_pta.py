@@ -56,7 +56,7 @@ class anis_pta():
         #Some configuration for spherical harmonic basis runs
         #clm refers to normal spherical harmonic basis
         #blm refers to sqrt power spherical harmonic basis
-        self.blmax = int(self.l_max)
+        self.blmax = int(self.l_max / 2.)
         self.clm_size = (self.l_max + 1) ** 2
         self.blm_size = hp.Alm.getsize(self.blmax)
 
