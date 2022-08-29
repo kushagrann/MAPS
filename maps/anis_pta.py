@@ -23,7 +23,7 @@ from lmfit import minimize, Parameters
 class anis_pta():
 
     def __init__(self, psrs_theta, psrs_phi, xi = [], rho = [], sig = [], os = 1, l_max = 6, nside = 2,
-                mode = 'power_basis', use_physical_prior = False):
+                mode = 'power_basis', use_physical_prior = False, include_pta_monopole = False):
 
         self.psrs_theta = psrs_theta
         self.psrs_phi = psrs_phi
@@ -44,6 +44,7 @@ class anis_pta():
         self.l_max = l_max
         self.nside = nside
         self.use_physical_prior = use_physical_prior
+        self.include_pta_monopole = include_pta_monopole
 
         self.npsrs = len(self.psrs_theta)
         self.npairs = int(np.math.factorial(self.npsrs) / (np.math.factorial(2) * np.math.factorial(self.npsrs - 2)))
@@ -338,11 +339,23 @@ class anis_pta():
 
         #This shape is to fit with lmfit's Parameter.add_many();
         #Format is (name, value, vary, min, max, expr, brute_step)
-        x0 = np.full((self.ndim, 7), 0.0, dtype = object)
+        if self.include_pta_monopole:
+            x0 = np.full((self.ndim + 1, 7), 0.0, dtype = object)
+        else:
+            x0 = np.full((self.ndim, 7), 0.0, dtype = object)
 
-        x0[0] = np.array(['A2', nr.uniform(0, 3), True, 0.0, None, None, None])
+        if self.include_pta_monopole:
+            x0[0] = np.array(['A_mono', nr.uniform(0, 3), True, 0.0, None, None, None])
+            x0[1] = np.array(['A2', nr.uniform(0, 3), True, 0.0, None, None, None])
 
-        idx = 1
+        else:
+            x0[0] = np.array(['A2', nr.uniform(0, 3), True, 0.0, None, None, None])
+
+        if self.include_pta_monopole:
+            idx = 2
+        else:
+            idx = 1
+
         for ll in range(self.blmax + 1):
             for mm in range(0, ll + 1):
 
@@ -389,9 +402,15 @@ class anis_pta():
             param_arr = np.array(list(param_dict.values()))
 
             #Do the thing
-            clm_pred = utils.convert_blm_params_to_clm(self, param_arr[1:])
+            if self.include_pta_monopole:
+                clm_pred = utils.convert_blm_params_to_clm(self, param_arr[2:])
+            else:
+                clm_pred = utils.convert_blm_params_to_clm(self, param_arr[1:])
 
-            sim_orf = param_arr[0] * np.sum(clm_pred[:, np.newaxis] * self.Gamma_lm, axis = 0)
+            if self.include_pta_monopole:
+                sim_orf = param_arr[0] * np.sum(clm_pred[:, np.newaxis] * self.Gamma_lm, axis = 0) + param_arr[0] * 0.5
+            else:
+                sim_orf = param_arr[0] * np.sum(clm_pred[:, np.newaxis] * self.Gamma_lm, axis = 0)
 
             return (sim_orf - obs_orf) / obs_orf_err
 
