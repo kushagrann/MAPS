@@ -40,17 +40,25 @@ def signal_to_noise(pta, lm_params = None):
         lm_out = lm_params
 
     pta_mono = ap.anis_pta(pta.psrs_theta, pta.psrs_phi, pta.xi, pta.rho, pta.sig, nside = pta.nside,
-                            l_max = 0, mode = pta.mode, os = 1) #OS already applied in pta
+                            l_max = 0, mode = pta.mode, os = 1, include_pta_monopole = pta.include_pta_monopole) #OS already applied in pta
     lm_out_mono = pta_mono.max_lkl_sqrt_power()
 
     lp = np.array(list(lm_out.params.valuesdict().values()))
     lp_mono = np.array(list(lm_out_mono.params.valuesdict().values()))
 
-    opt_clm = convert_blm_params_to_clm(pta, lp[1:])
-    opt_clm_mono = convert_blm_params_to_clm(pta_mono, lp_mono[1:])
+    if pta.include_pta_monopole:
+        opt_clm = convert_blm_params_to_clm(pta, lp[2:])
+        opt_clm_mono = convert_blm_params_to_clm(pta_mono, lp_mono[2:])
+    else:
+        opt_clm = convert_blm_params_to_clm(pta, lp[1:])
+        opt_clm_mono = convert_blm_params_to_clm(pta_mono, lp_mono[1:])
 
-    ml_orf = pta.orf_from_clm(np.append(np.log10(lp[0]), opt_clm))
-    hd_orf = pta_mono.orf_from_clm(np.append(np.log10(lp_mono[0]), opt_clm_mono))
+    if pta.include_pta_monopole:
+        ml_orf = pta.orf_from_clm(np.append(np.log10(lp[1]), opt_clm)) + lp[0] * 0.5
+        hd_orf = pta_mono.orf_from_clm(np.append(np.log10(lp_mono[1]), opt_clm_mono)) + lp_mono[0] * 0.5
+    else:
+        ml_orf = pta.orf_from_clm(np.append(np.log10(lp[0]), opt_clm))
+        hd_orf = pta_mono.orf_from_clm(np.append(np.log10(lp_mono[0]), opt_clm_mono))
 
     snm = np.sum(-1 * (pta.rho - ml_orf) ** 2 / (2 * (pta.sig) ** 2))
     nm = np.sum(-1 * (pta.rho) ** 2 / (2 * (pta.sig) ** 2))
