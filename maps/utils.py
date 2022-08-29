@@ -131,7 +131,10 @@ def posterior_sampled_Cl_skymap(anis_pta, chain, burn = 0, n_draws = 100):
 
     chain_copy = chain.copy()
 
-    chain_copy.insert(loc = 1, column = 'b_00', value = 1)
+    if anis_pta.include_pta_monopole:
+        chain_copy.insert(loc = 2, column = 'b_00', value = 1)
+    else:
+        chain_copy.insert(loc = 1, column = 'b_00', value = 1)
 
     sub_chain = chain_copy.sample(n = n_draws)
 
@@ -140,11 +143,17 @@ def posterior_sampled_Cl_skymap(anis_pta, chain, burn = 0, n_draws = 100):
 
     for ii in range(n_draws):
 
-        clms = convert_blm_params_to_clm(anis_pta, sub_chain.iloc[ii, 1:])
+        if anis_pta.include_pta_monopole:
+            clms = convert_blm_params_to_clm(anis_pta, sub_chain.iloc[ii, 2:])
+        else:
+            clms = convert_blm_params_to_clm(anis_pta, sub_chain.iloc[ii, 1:])
 
         Cl = angular_power_spectrum(anis_pta, clms)
 
-        pow_maps[ii] = sub_chain.iloc[ii, 0] * ac.mapFromClm(clms, nside = anis_pta.nside)
+        if anis_pta.include_pta_monopole:
+            pow_maps[ii] = sub_chain.iloc[ii, 1] * ac.mapFromClm(clms, nside = anis_pta.nside)
+        else:
+            pow_maps[ii] = sub_chain.iloc[ii, 0] * ac.mapFromClm(clms, nside = anis_pta.nside)
 
         post_Cl[ii] = Cl
 
