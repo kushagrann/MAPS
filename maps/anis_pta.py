@@ -345,11 +345,11 @@ class anis_pta():
             x0 = np.full((self.ndim, 7), 0.0, dtype = object)
 
         if self.include_pta_monopole:
-            x0[0] = np.array(['A_mono', nr.uniform(1e-10, 3), True, 1e-10, None, None, None])
-            x0[1] = np.array(['A2', nr.uniform(1e-10, 3), True, 1e-10, None, None, None])
+            x0[0] = np.array(['A_mono', np.log10(nr.uniform(1e-10, 3)), True, np.log10(1e-10), None, None, None])
+            x0[1] = np.array(['A2', np.log10(nr.uniform(1e-10, 3)), True, np.log10(1e-10), None, None, None])
 
         else:
-            x0[0] = np.array(['A2', nr.uniform(0, 3), True, 0.0, None, None, None])
+            x0[0] = np.array(['A2', np.log10(nr.uniform(0, 3)), True, np.log10(1e-10), None, None, None])
 
         if self.include_pta_monopole:
             idx = 2
@@ -408,9 +408,9 @@ class anis_pta():
                 clm_pred = utils.convert_blm_params_to_clm(self, param_arr[1:])
 
             if self.include_pta_monopole:
-                sim_orf = param_arr[1] * np.sum(clm_pred[:, np.newaxis] * self.Gamma_lm, axis = 0) + param_arr[0] * 0.5
+                sim_orf = (10 ** param_arr[1]) * np.sum(clm_pred[:, np.newaxis] * self.Gamma_lm, axis = 0) + (10 ** param_arr[0]) * 0.5
             else:
-                sim_orf = param_arr[0] * np.sum(clm_pred[:, np.newaxis] * self.Gamma_lm, axis = 0)
+                sim_orf = (10 ** param_arr[0]) * np.sum(clm_pred[:, np.newaxis] * self.Gamma_lm, axis = 0)
 
             return (sim_orf - obs_orf) / obs_orf_err
 
