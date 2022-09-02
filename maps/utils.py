@@ -54,11 +54,11 @@ def signal_to_noise(pta, lm_params = None):
         opt_clm_mono = convert_blm_params_to_clm(pta_mono, lp_mono[1:])
 
     if pta.include_pta_monopole:
-        ml_orf = pta.orf_from_clm(np.append(np.log10(lp[1]), opt_clm)) + lp[0] * 0.5
-        hd_orf = pta_mono.orf_from_clm(np.append(np.log10(lp_mono[1]), opt_clm_mono)) + lp_mono[0] * 0.5
+        ml_orf = pta.orf_from_clm(np.append((lp[1]), opt_clm)) + (10 ** lp[0]) * 0.5
+        hd_orf = pta_mono.orf_from_clm(np.append((lp_mono[1]), opt_clm_mono)) + (10 ** lp_mono[0]) * 0.5
     else:
-        ml_orf = pta.orf_from_clm(np.append(np.log10(lp[0]), opt_clm))
-        hd_orf = pta_mono.orf_from_clm(np.append(np.log10(lp_mono[0]), opt_clm_mono))
+        ml_orf = pta.orf_from_clm(np.append((lp[0]), opt_clm))
+        hd_orf = pta_mono.orf_from_clm(np.append((lp_mono[0]), opt_clm_mono))
 
     snm = np.sum(-1 * (pta.rho - ml_orf) ** 2 / (2 * (pta.sig) ** 2))
     nm = np.sum(-1 * (pta.rho) ** 2 / (2 * (pta.sig) ** 2))
@@ -151,9 +151,9 @@ def posterior_sampled_Cl_skymap(anis_pta, chain, burn = 0, n_draws = 100):
         Cl = angular_power_spectrum(anis_pta, clms)
 
         if anis_pta.include_pta_monopole:
-            pow_maps[ii] = sub_chain.iloc[ii, 1] * ac.mapFromClm(clms, nside = anis_pta.nside)
+            pow_maps[ii] = (10 ** sub_chain.iloc[ii, 1]) * ac.mapFromClm(clms, nside = anis_pta.nside)
         else:
-            pow_maps[ii] = sub_chain.iloc[ii, 0] * ac.mapFromClm(clms, nside = anis_pta.nside)
+            pow_maps[ii] = (10 ** sub_chain.iloc[ii, 0]) * ac.mapFromClm(clms, nside = anis_pta.nside)
 
         post_Cl[ii] = Cl
 
