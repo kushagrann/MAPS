@@ -408,7 +408,7 @@ class anis_pta():
                 clm_pred = utils.convert_blm_params_to_clm(self, param_arr[1:])
 
             if self.include_pta_monopole:
-                sim_orf = (10 ** param_arr[1]) * np.sum(clm_pred[:, np.newaxis] * self.Gamma_lm, axis = 0) + (10 ** param_arr[0]) * 0.5
+                sim_orf = (10 ** param_arr[1]) * np.sum(clm_pred[:, np.newaxis] * self.Gamma_lm, axis = 0) + (10 ** param_arr[0]) * 1
             else:
                 sim_orf = (10 ** param_arr[0]) * np.sum(clm_pred[:, np.newaxis] * self.Gamma_lm, axis = 0)
 
