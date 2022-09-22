@@ -48,10 +48,14 @@ def signal_to_noise(pta, lm_params = None):
 
     if pta.include_pta_monopole:
         opt_clm = convert_blm_params_to_clm(pta, lp[2:])
+        opt_clm = opt_clm * np.sqrt(4 * np.pi) / opt_clm[0] #Normalize c_00 to sqrt(4pi)
         opt_clm_mono = convert_blm_params_to_clm(pta_mono, lp_mono[2:])
+        opt_clm_mono = opt_clm_mono * np.sqrt(4 * np.pi) / opt_clm_mono[0] #Normalize c_00 to sqrt(4pi)
     else:
         opt_clm = convert_blm_params_to_clm(pta, lp[1:])
+        opt_clm = opt_clm * np.sqrt(4 * np.pi) / opt_clm[0] #Normalize c_00 to sqrt(4pi)
         opt_clm_mono = convert_blm_params_to_clm(pta_mono, lp_mono[1:])
+        opt_clm_mono = opt_clm_mono * np.sqrt(4 * np.pi) / opt_clm_mono[0] #Normalize c_00 to sqrt(4pi)
 
     if pta.include_pta_monopole:
         ml_orf = pta.orf_from_clm(np.append((lp[1]), opt_clm)) + (10 ** lp[0]) * 0.5
