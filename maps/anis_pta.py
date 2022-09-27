@@ -81,7 +81,7 @@ class anis_pta():
 
             uti = np.triu_indices(n = self.npsrs, k = 1)
 
-            self.Gamma_lm = np.full((Gamma_lm.shape[0], self.npairs.shape[0]), 0.0)
+            self.Gamma_lm = np.full((Gamma_lm.shape[0], self.npairs), 0.0)
 
             for ii in range(Gamma_lm.shape[0]):
 
