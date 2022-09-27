@@ -72,7 +72,7 @@ class anis_pta():
 
         self.F_mat = self.antenna_response()
 
-        if self.mode == 'power_basis' or self.mode == 'sqrt_power_basis' and (len(xi) != 0 or len(rho) != 0 or len(sig) != 0):
+        if self.mode == 'power_basis' or self.mode == 'sqrt_power_basis':
 
             #The spherical harmonic basis for \Gamma_lm
             #shape (nclm, npsrs, npsrs)
