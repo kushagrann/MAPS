@@ -17,6 +17,22 @@ from . import anis_pta as ap
 from scipy.interpolate import interp1d
 from astroML.linear_model import LinearRegression
 
+def invert_omega(hp_map):
+    #Utility function to covner sky map such that it goes from GWs pointing in direction of GW propagation to pointing towards source of GWs
+    nside = hp.get_nside(hp_map)
+
+    all_pix_idx = np.array([ ii for ii in range(hp.nside2npix(nside = nside)) ])
+
+    all_pix_x, all_pix_y, all_pix_z = hp.pix2vec(nside = nside, ipix = all_pix_idx)
+
+    inv_all_pix_x = -1 * all_pix_x
+    inv_all_pix_y = -1 * all_pix_y
+    inv_all_pix_z = -1 * all_pix_z
+
+    inv_pix_idx = [hp.vec2pix(nside = nside, x = xx, y = yy, z = zz) for (xx, yy, zz) in zip(inv_all_pix_x, inv_all_pix_y, inv_all_pix_z)]
+    
+    return hp_map[inv_pix_idx]
+    
 def convert_blm_params_to_clm(pta_anis, blm_params):
 
     blm = pta_anis.sqrt_basis_helper.blm_params_2_blms(blm_params[1:])
