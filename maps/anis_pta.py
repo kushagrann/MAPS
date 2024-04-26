@@ -9,6 +9,7 @@ from PTMCMCSampler.PTMCMCSampler import PTSampler as ptmcmc
 from enterprise.signals import anis_coefficients as ac
 
 import sympy
+from scipy.integrate import trapz
 
 import scipy.linalg as sl
 
@@ -292,6 +293,33 @@ class anis_pta():
         fisher_mat = np.matmul(self.F_mat.transpose(), np.matmul(N_mat_inv, self.F_mat))
 
         return fisher_mat
+
+    def get_radiometer_map(self):
+
+        N_mat = np.zeros((len(self.rho), len(self.rho)))
+        N_mat_inv = np.zeros((len(self.rho), len(self.rho)))
+    
+        N_mat[np.diag_indices(N_mat.shape[0])] = self.sig ** 2
+        N_mat_inv[np.diag_indices(N_mat_inv.shape[0])] = 1 / self.sig ** 2
+    
+        dirty_map = np.matmul(self.F_mat.transpose(), np.matmul(N_mat_inv, self.rho))
+    
+        #Calculate radiometer map
+    
+        fisher_mat = self.fisher_matrix_pixel()
+    
+        f_diag_ele = np.diag(fisher_mat)
+    
+        f_diag = np.zeros((len(f_diag_ele), len(f_diag_ele)))
+        f_diag[np.diag_indices(f_diag.shape[0])] =  f_diag_ele
+    
+        pix_area = hp.nside2pixarea(nside = self.nside)
+        radio_map = np.matmul(np.linalg.inv(f_diag), dirty_map)
+        radio_map_n = radio_map * 4 * np.pi / trapz(radio_map, dx = pix_area)
+    
+        radio_map_err = np.sqrt(np.diag(np.linalg.inv(f_diag))) * 4 * np.pi / trapz(radio_map, dx = pix_area)
+    
+        return radio_map_n, radio_map_err
 
     def max_lkl_clm(self, cutoff = 0, use_svd_reg = False, reg_type = 'l2', alpha = 0):
 
