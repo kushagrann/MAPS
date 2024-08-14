@@ -23,45 +23,79 @@ from lmfit import minimize, Parameters
 
 class anis_pta():
 
-    def __init__(self, psrs_theta, psrs_phi, xi = [], rho = [], sig = [], os = 1, l_max = 6, nside = 2,
-                mode = 'power_basis', use_physical_prior = False, include_pta_monopole = False):
+    def __init__(self, psrs_theta, psrs_phi, xi = None, rho = None, sig = None, os = None, 
+                 l_max = 6, nside = 2, mode = 'power_basis', use_physical_prior = False, 
+                 include_pta_monopole = False, pair_idx = None):
+        """Constructor for the anis_pta class.
 
-        self.psrs_theta = psrs_theta
-        self.psrs_phi = psrs_phi
-        if len(xi) != 0:
-            self.xi = xi
+        This function will construct an instance of the anis_pta class. This class
+        can be used to perform anisotropic GW searches using PTA data by supplying
+        it with the outputs of the PTA optimal statistic which can be found in 
+        (enterprise_extensions.frequentist.optimal_statistic or defiant/optimal_statistic).
+        While you can include the OS values upon construction (xi, rho, sig, os),
+        you can also use the method set_os_data() to set these values after construction.
+        
+        Args:
+            psrs_theta (np.ndarray): An array of pulsar position theta.
+            psrs_phi (np.ndarray): An array of pulsar position phi.
+            xi (list, optional): A list of pulsar pair separations from the OS. Defaults to [].
+            rho (list, optional): A list of pulsar pair correlated amplitudes (<rho> = <A^2*ORF>). 
+                    Defaults to [].
+            sig (list, optional): A list of 1-sigma uncertaintties on rho. Defaults to [].
+            os (float, optional): The OS' fit A^2 value.
+            l_max (int): The maximum l value for spherical harmonics. Defaults to 6.
+            nside (int): The nside of the healpix sky pixelization. Defaults to 2.
+            mode (str): The mode of the spherical harmonic decomposition to use. 
+                    Must either be 'power_basis', 'sqrt_power_basis', or 'hybrid'. 
+                    Defaults to 'power_basis'.
+            use_physical_prior (bool): Whether to use physical priors or not. Defaults to False.
+            include_pta_monopole (bool): Whether to include the monopole term in the search. 
+                    Defaults to False.
+            pair_idx (np.ndarray, optional): An array of indices for the pulsar pairs to use.
+                    Set to None for automatic ordering. Defaults to None.
+        """
+        # Pulsar positions
+        self.psrs_theta = psrs_theta if type(psrs_theta) is np.ndarray else np.array(psrs_theta)
+        self.psrs_phi = psrs_phi if type(psrs_phi) is np.ndarray else np.array(psrs_phi)
+        if len(psrs_theta) != len(psrs_phi):
+            raise ValueError("Pulsar theta and phi arrays must have the same length")
+        self.npsr = len(psrs_theta)
+        self.npairs = int( (self.npsr * (self.npsr - 1)) / 2)
+
+        # OS values
+        self.set_os_data(xi, rho, sig, os)
+        if pair_idx is None:
+            self.pair_idx = np.array([(a,b) for a in range(self.npsr) for b in range(a+1,self.npsr)])
         else:
-            self.xi = self._get_xi()
-
-        #Read in OS and normalize cross-correlations by OS.
-        self.os = os
-        if len(rho) > 0 and len(sig) > 0:
-            self.rho = np.array(rho) / self.os
-            self.sig = np.array(sig) / self.os
-        else:
-            self.rho = rho
-            self.sig = sig
-
-        self.l_max = l_max
-        self.nside = nside
-        self.use_physical_prior = use_physical_prior
-        self.include_pta_monopole = include_pta_monopole
-
-        self.npsrs = len(self.psrs_theta)
-        self.npairs = int(np.math.factorial(self.npsrs) / (np.math.factorial(2) * np.math.factorial(self.npsrs - 2)))
-
+            self.pair_idx = pair_idx
+        
+        # Check if pair_idx is valid
+        if len(self.pair_idx) != self.npairs:
+            raise ValueError("pair_idx must have length equal to the number of pulsar pairs")
+        
+        # Pixel decomposition and Spherical harmonic parameters
+        self.l_max = int(l_max)
+        self.nside = int(nside)
         self.npix = hp.nside2npix(self.nside)
-        self.gw_theta, self.gw_phi = hp.pix2ang(nside = self.nside, ipix = np.arange(self.npix))
 
-        self.mode = mode
-
-        #Some configuration for spherical harmonic basis runs
-        #clm refers to normal spherical harmonic basis
-        #blm refers to sqrt power spherical harmonic basis
+        # Some configuration for spherical harmonic basis runs
+        # clm refers to normal spherical harmonic basis
+        # blm refers to sqrt power spherical harmonic basis
         self.blmax = int(self.l_max / 2.)
         self.clm_size = (self.l_max + 1) ** 2
         self.blm_size = hp.Alm.getsize(self.blmax)
 
+        self.gw_theta, self.gw_phi = hp.pix2ang(nside=self.nside, ipix=np.arange(self.npix))
+       
+        self.use_physical_prior = bool(use_physical_prior)
+        self.include_pta_monopole = bool(include_pta_monopole)
+
+        if mode in ['power_basis', 'sqrt_power_basis', 'hybrid']:
+            self.mode = mode
+        else:
+            raise ValueError("mode must be either 'power_basis' or 'sqrt_power_basis'")
+
+        
         self.sqrt_basis_helper = CG.clebschGordan(l_max = self.l_max)
         #self.reorder, self.neg_idx, self.zero_idx, self.pos_idx = self.reorder_hp_ylm()
 
@@ -75,20 +109,48 @@ class anis_pta():
 
         if self.mode == 'power_basis' or self.mode == 'sqrt_power_basis':
 
-            #The spherical harmonic basis for \Gamma_lm
-            #shape (nclm, npsrs, npsrs)
-            Gamma_lm = ac.anis_basis(np.dstack((self.psrs_phi, self.psrs_theta))[0], lmax = self.l_max,
-                                     nside = self.nside)
-
-            uti = np.triu_indices(n = self.npsrs, k = 1)
-
-            self.Gamma_lm = np.full((Gamma_lm.shape[0], self.npairs), 0.0)
-
-            for ii in range(Gamma_lm.shape[0]):
-
-                self.Gamma_lm[ii] = Gamma_lm[ii][uti]
+            # The spherical harmonic basis for \Gamma_lm_mat shape (nclm, npsrs, npsrs)
+            Gamma_lm_mat = ac.anis_basis(np.dstack((self.psrs_phi, self.psrs_theta))[0], 
+                                         lmax = self.l_max, nside = self.nside)
+            
+            # We need to reorder Gamma_lm_mat to shape (nclm, npairs)
+            self.Gamma_lm = np.zeros((Gamma_lm_mat.shape[0], self.npairs))
+            for i, (a, b) in enumerate(self.pair_idx):
+                self.Gamma_lm[:, i] = Gamma_lm_mat[:, a, b]
 
         return None
+    
+    def set_os_data(self, xi=None, rho=None, sig=None, os=None):
+        """Set the OS data for the anis_pta object.
+
+        This function allows you to set the OS data for the anis_pta object 
+        after construction.
+
+        Args:
+            xi (list): A list of pulsar pair separations from the OS.
+            rho (list): A list of pulsar pair correlated amplitudes (<rho> = <A^2*ORF>).
+            sig (list): A list of 1-sigma uncertaintties on rho.
+            os (float): The OS' fit A^2 value.
+        """
+        # Read in OS and normalize cross-correlations by OS. 
+        # (i.e. get <rho/OS> = <ORF>)
+        if xi is not None:
+            self.xi = xi
+        else:
+            self.xi = self._get_xi()
+
+        if (rho is not None) and (sig is not None) and (os is not None):
+            self.os = os
+        
+            self.rho = np.array(rho) / self.os
+            self.sig = np.array(sig) / self.os
+        else:
+            self.xi = self._get_xi()
+            self.rho = None
+            self.sig = None
+            self.os = None
+        
+        
 
     def _get_radec(self):
 
