@@ -63,11 +63,11 @@ class anis_pta():
         self.npairs = int( (self.npsr * (self.npsr - 1)) / 2)
 
         # OS values
-        self.set_os_data(xi, rho, sig, os)
         if pair_idx is None:
             self.pair_idx = np.array([(a,b) for a in range(self.npsr) for b in range(a+1,self.npsr)])
         else:
             self.pair_idx = pair_idx
+        self.set_os_data(xi, rho, sig, os)
         
         # Check if pair_idx is valid
         if len(self.pair_idx) != self.npairs:
@@ -150,35 +150,30 @@ class anis_pta():
             self.sig = None
             self.os = None
         
-        
-
     def _get_radec(self):
 
-        psr_ra = []
-        psr_dec = []
-
-        for ptheta, pphi in zip(self.psrs_theta, self.psrs_phi):
-
-            psr_ra.append(pphi)
-            psr_dec.append(np.pi / 2 - ptheta)
-
+        psr_ra = self.psrs_phi
+        psr_dec = (np.pi/2) - self.psrs_theta
         return psr_ra, psr_dec
 
     def _get_xi(self):
 
         psrs_ra, psrs_dec = self._get_radec()
 
-        pos_vectors = np.array(
-                [np.cos(psrs_ra) * np.cos(psrs_dec), np.sin(psrs_ra) * np.cos(psrs_dec), np.sin(psrs_dec)])
+        x = np.cos(psrs_ra)*np.cos(psrs_dec)
+        y = np.sin(psrs_ra)*np.cos(psrs_dec)
+        z = np.sin(psrs_dec)
+        
+        pos_vectors = np.array([x,y,z])
 
-        xi = []
+        a,b = self.pair_idx[:,0], self.pair_idx[:,1]
 
-        for ii in range(len(self.psrs_theta)):
-                for jj in range(ii+1, len(self.psrs_theta)):
+        xi = np.zeros( len(a) )
+        # This effectively does a dot product of pulsar position vectors for all pairs a,b
+        pos_dot = np.einsum('ij,ij->j', pos_vectors[:,a], pos_vectors[:, b])
+        xi = np.arccos( pos_dot )
 
-                    xi.append(np.arccos(np.dot(pos_vectors[:, ii], pos_vectors[:, jj])))
-
-        return np.array(xi)
+        return np.squeeze(xi)
 
     def _fplus_fcross(self, psrtheta, psrphi, gwtheta, gwphi):
         """
@@ -217,22 +212,17 @@ class anis_pta():
     def antenna_response(self):
 
         F_mat = np.zeros((self.npairs, self.npix))
-        pair_no = 0
 
-        for ii in range(self.npsrs):
+        for ii,(a,b) in enumerate(self.pair_idx):
+            for kk in range(self.npix):
 
-            for jj in range(ii + 1, self.npsrs):
+                pp_1, pc_1 = self._fplus_fcross(self.psrs_theta[a], self.psrs_phi[a],
+                                            self.gw_theta[kk], self.gw_phi[kk])
+                
+                pp_2, pc_2 = self._fplus_fcross(self.psrs_theta[b], self.psrs_phi[b],
+                                            self.gw_theta[kk], self.gw_phi[kk])
 
-                for kk in range(self.npix):
-
-                    pp_1, pc_1 = self._fplus_fcross(self.psrs_theta[ii], self.psrs_phi[ii],
-                                              self.gw_theta[kk], self.gw_phi[kk])
-                    pp_2, pc_2 = self._fplus_fcross(self.psrs_theta[jj], self.psrs_phi[jj],
-                                              self.gw_theta[kk], self.gw_phi[kk])
-
-                    F_mat[pair_no][kk] =  (pp_1 * pp_2 + pc_1 * pc_2)  * 1.5 / (self.npix)
-
-                pair_no += 1
+                F_mat[ii][kk] =  (pp_1 * pp_2 + pc_1 * pc_2)  * 1.5 / (self.npix)
 
         return F_mat
 
