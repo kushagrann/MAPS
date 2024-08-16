@@ -22,6 +22,43 @@ import lmfit
 from lmfit import minimize, Parameters
 
 class anis_pta():
+    """A class to perform anisotropic GW searches using PTA data.
+
+    This class can be used to perform anisotropic GW searches using PTA data by supplying
+    it with the outputs of the PTA optimal statistic which can be found in
+    (enterprise_extensions.frequentist.optimal_statistic or defiant/optimal_statistic).
+    While you can include the OS values upon construction (xi, rho, sig, os),
+    you can also use the method set_os_data() to set these values after construction.
+
+    Attributes:
+        psrs_theta (np.ndarray): An array of pulsar position theta [npsr].
+        psrs_phi (np.ndarray): An array of pulsar position phi [npsr].
+        npsr (int): The number of pulsars in the PTA.
+        npair (int): The number of pulsar pairs.
+        pair_idx (np.ndarray): An array of pulsar indices for each pair [npair x 2].
+        xi (np.ndarray): A list of pulsar pair separations from the OS [npair].
+        rho (np.ndarray): A list of pulsar pair correlations [npair].
+            NOTE: rho is normalized by the OS value, making this slightly different from 
+            what the OS uses. (i.e. OS calculates \hat{A}^2 * ORF while this uses ORF).
+        sig (np.ndarray): A list of 1-sigma uncertainties on rho [npair].
+        os (float): The OS' fit A^2 value.
+        l_max (int): The maximum l value for spherical harmonics.
+        nside (int): The nside of the healpix sky pixelization.
+        npix (int): The number of pixels in the healpix pixelization.
+        blmax (int): ???
+        clm_size (int): The number of spherical harmonic modes.
+        blm_size (int): The number of spherical harmonic modes for the sqrt power basis.
+        gw_theta (np.ndarray): An array of source GW theta positions [npix].
+        gw_phi (np.ndarray): An array of source GW phi positions [npix].
+        use_physical_prior (bool): Whether to use physical priors or not.
+        include_pta_monopole (bool): Whether to include the monopole term in the search.
+        mode (str): The mode of the spherical harmonic decomposition to use.
+            Must be 'power_basis', 'sqrt_power_basis', or 'hybrid'.
+        sqrt_basis_helper (CG.clebschGordan): A helper object for the sqrt power basis.
+        ndim (int): The number of dimensions for the search.
+        F_mat (np.ndarray): The antenna response matrix [npair x npix].
+        Gamma_lm (np.ndarray): The spherical harmonic basis [npair x ndim].
+    """
 
     def __init__(self, psrs_theta, psrs_phi, xi = None, rho = None, sig = None, os = None, 
                  l_max = 6, nside = 2, mode = 'power_basis', use_physical_prior = False, 
@@ -38,21 +75,7 @@ class anis_pta():
         Args:
             psrs_theta (np.ndarray): An array of pulsar position theta.
             psrs_phi (np.ndarray): An array of pulsar position phi.
-            xi (list, optional): A list of pulsar pair separations from the OS. Defaults to [].
-            rho (list, optional): A list of pulsar pair correlated amplitudes (<rho> = <A^2*ORF>). 
-                    Defaults to [].
-            sig (list, optional): A list of 1-sigma uncertaintties on rho. Defaults to [].
-            os (float, optional): The OS' fit A^2 value.
-            l_max (int): The maximum l value for spherical harmonics. Defaults to 6.
-            nside (int): The nside of the healpix sky pixelization. Defaults to 2.
-            mode (str): The mode of the spherical harmonic decomposition to use. 
-                    Must either be 'power_basis', 'sqrt_power_basis', or 'hybrid'. 
-                    Defaults to 'power_basis'.
-            use_physical_prior (bool): Whether to use physical priors or not. Defaults to False.
-            include_pta_monopole (bool): Whether to include the monopole term in the search. 
-                    Defaults to False.
-            pair_idx (np.ndarray, optional): An array of indices for the pulsar pairs to use.
-                    Set to None for automatic ordering. Defaults to None.
+            
         """
         # Pulsar positions
         self.psrs_theta = psrs_theta if type(psrs_theta) is np.ndarray else np.array(psrs_theta)
@@ -67,7 +90,16 @@ class anis_pta():
             self.pair_idx = np.array([(a,b) for a in range(self.npsr) for b in range(a+1,self.npsr)])
         else:
             self.pair_idx = pair_idx
-        self.set_os_data(xi, rho, sig, os)
+        
+        if xi is not None:
+            if type(xi) is not np.ndarray:
+                self.xi = np.array(xi)
+            else:
+                self.xi = xi
+        else:
+            self.xi = self._get_xi()
+        self.rho, self.sig, self.os = None, None, None
+        self.set_os_data(rho, sig, os)
         
         # Check if pair_idx is valid
         if len(self.pair_idx) != self.npairs:
@@ -120,44 +152,48 @@ class anis_pta():
 
         return None
     
-    def set_os_data(self, xi=None, rho=None, sig=None, os=None):
+    def set_os_data(self, rho=None, sig=None, os=None):
         """Set the OS data for the anis_pta object.
 
         This function allows you to set the OS data for the anis_pta object 
-        after construction.
+        after construction. This allows users to use the same anis_pta object
+        with different OS data from noise marginalization or per-frequency 
+        analysis. xi is not required and if excluded will be calculated from pulsar
+        positions.
 
         Args:
-            xi (list): A list of pulsar pair separations from the OS.
             rho (list): A list of pulsar pair correlated amplitudes (<rho> = <A^2*ORF>).
             sig (list): A list of 1-sigma uncertaintties on rho.
             os (float): The OS' fit A^2 value.
         """
         # Read in OS and normalize cross-correlations by OS. 
         # (i.e. get <rho/OS> = <ORF>)
-        if xi is not None:
-            self.xi = xi
-        else:
-            self.xi = self._get_xi()
 
         if (rho is not None) and (sig is not None) and (os is not None):
             self.os = os
-        
             self.rho = np.array(rho) / self.os
             self.sig = np.array(sig) / self.os
         else:
-            self.xi = self._get_xi()
             self.rho = None
             self.sig = None
             self.os = None
         
     def _get_radec(self):
-
+        """Get the pulsar positions in RA and DEC."""
         psr_ra = self.psrs_phi
         psr_dec = (np.pi/2) - self.psrs_theta
         return psr_ra, psr_dec
 
     def _get_xi(self):
+        """Calculate the angular separation between pulsar pairs.
 
+        A function to compute the angular separation between pulsar pairs. This
+        function will use a pair_idx array which is assigned upon construction 
+        which ensures that the ordering of the pairs is consistent with the OS.
+
+        Returns:
+            np.ndarray: An array of pair separations.
+        """
         psrs_ra, psrs_dec = self._get_radec()
 
         x = np.cos(psrs_ra)*np.cos(psrs_dec)
@@ -176,13 +212,21 @@ class anis_pta():
         return np.squeeze(xi)
 
     def _fplus_fcross(self, psrtheta, psrphi, gwtheta, gwphi):
-        """
-        Compute gravitational-wave quadrupolar antenna pattern.
-        (From NX01)
-        :param psr: pulsar object
-        :param gwtheta: Polar angle of GW source in celestial coords [radians]
-        :param gwphi: Azimuthal angle of GW source in celestial coords [radians]
-        :returns: fplus, fcross
+        """Compute the antenna pattern functions. for each pulsar.
+
+        This function comes primarily from NX01 (A propotype NANOGrav analysis 
+        pipeline). This function supports vectorization for multiple pulsar positions 
+        and multiple gw positions. 
+        
+        Args:
+            psrtheta (np.ndarray): An array of pulsar theta positions.
+            psrphi (np.ndarray): An array of pulsar phi positions.
+            gwtheta (np.ndarray): An array of GW theta positions.
+            gwphi (np.ndarray): An array of GW phi positions.
+        
+        Returns:
+            tuple: A tuple of two arrays, (Fplus, Fcross) containing the antenna 
+                pattern functions for each pulsar.
         """
 
         # define variable for later use
@@ -210,7 +254,16 @@ class anis_pta():
         return fplus, fcross
 
     def antenna_response(self):
+        """A function to compute the antenna response matrix R_{ab,k}.
 
+        This function computes the antenna response matrix R_{ab,k} where ab 
+        represents the pulsar pair made of pulsars a and b, and k represents
+        the pixel index. 
+
+        Returns:
+            np.ndarray: An array of shape (npairs, npix) containing the antenna
+                pattern response matrix.
+        """
         F_mat = np.zeros((self.npairs, self.npix))
 
         for ii,(a,b) in enumerate(self.pair_idx):
@@ -227,6 +280,15 @@ class anis_pta():
         return F_mat
 
     def get_pure_HD(self):
+        """Calculate the Hellings and Downs correlation for each pulsar pair.
+
+        This function calculates the Hellings and Downs correlation for each pulsar
+        pair. This is done by using the values of xi potentially supplied upon 
+        construction. 
+
+        Returns:
+            np.ndarray: An array of HD correlation values for each pulsar pair.
+        """
         #Return the theoretical HD curve given xi
 
         xx = (1 - np.cos(self.xi)) / 2.
@@ -235,6 +297,19 @@ class anis_pta():
         return hd_curve
 
     def orf_from_clm(self, params):
+        """A function to calculate the ORF from the clm values.
+
+        This function calculates the ORF from the supplied clm values in params.
+        params[0] indicates the monopole, params[1] indicates C_{1,-1} and so on.
+        From there this function calculates the ORF for each pair given those
+        clm values.
+
+        Args:
+            params (np.ndarray): An array of clm values.
+
+        Returns:
+            np.ndarray: An array of ORF values for each pulsar pair.
+        """
         #Using supplied clm values, calculate the corresponding power map
         #and calculate the ORF from that power map (convoluted, I know)
 
@@ -248,17 +323,24 @@ class anis_pta():
         return np.longdouble(orf)
 
     def clmFromAlm(self, alm):
-        """
+        """A function to convert alm values to clm values.
+
         Given an array of clm values, return an array of complex alm valuex
-        Note: There is a bug in healpy for the negative m values. This function
+        NOTE: There is a bug in healpy for the negative m values. This function
         just takes the imaginary part of the abs(m) alm index.
+
+        Args:
+            alm (np.ndarray): An array of alm values.
+
+        Returns:
+            np.ndarray: An array of clm values.
         """
         nalm = len(alm)
         #maxl = int(np.sqrt(9.0 - 4.0 * (2.0 - 2.0 * nalm)) * 0.5 - 1.5)  # Really?
         maxl = self.l_max
         nclm = (maxl + 1) ** 2
 
-         #Check the solution. Went wrong one time..
+        # Check the solution. Went wrong one time..
         #if nalm != int(0.5 * (maxl + 1) * (maxl + 2)):
         #    raise ValueError("Check numerical precision. This should not happen")
 
