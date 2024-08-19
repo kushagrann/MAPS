@@ -175,3 +175,39 @@ def posterior_sampled_Cl_skymap(anis_pta, chain, burn = 0, n_draws = 100):
         post_Cl[ii] = Cl
 
     return pow_maps, post_Cl
+
+
+def woodbury_inverse(A, U, C, V, ret_cond = False):
+    """A function to compute the inverse of a matrix using the Woodbury matrix identity.
+
+    This function computes the inverse of a matrix using the Woodbury matrix identity 
+    for more stable matrix inverses. The matrix labels are the same as those used 
+    in its wikipedia page (https://en.wikipedia.org/wiki/Woodbury_matrix_identity)
+    This solves the inverse to: (A + UCV)^-1.
+    
+    This function can also solve inverses of the form: (A + K)^-1 where A is a
+    diagonal matrix and K is a dense matrix. To do this, simply set U and C to 
+    the identity matrix and V to K.
+    
+    Args:
+        A (np.ndarray): An invertible nxn matrix
+        U (np.ndarray): A nxk matrix
+        C (np.ndarray): An invertible kxk matrix
+        V (np.ndarray): A kxn matrix
+        ret_cond (bool, optional): Whether to return the condition number of the matrix (C + V A^-1 U)
+
+    Returns:
+        np.ndarray: The inverse of the matrix (A + UCV)^-1
+    """
+
+    Ainv = np.diag( 1/np.diag(A) )
+    Cinv = np.linalg.pinv(C)
+
+    # (A+UCV)^-1 = (A^-1) - A^-1 @ U @ (C^-1 + V @ A^-1 @ U)^-1 @ V @ A^-1
+    CVAU = Cinv + V @ Ainv @ U
+    tot_inv = Ainv - Ainv @ U @ np.linalg.solve(CVAU, V @ Ainv) 
+
+    if ret_cond:
+        return tot_inv, np.linalg.cond(CVAU)
+    
+    return tot_inv

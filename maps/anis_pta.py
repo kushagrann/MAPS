@@ -36,12 +36,13 @@ class anis_pta():
         npsr (int): The number of pulsars in the PTA.
         npair (int): The number of pulsar pairs.
         pair_idx (np.ndarray): An array of pulsar indices for each pair [npair x 2].
-        xi (np.ndarray): A list of pulsar pair separations from the OS [npair].
-        rho (np.ndarray): A list of pulsar pair correlations [npair].
+        xi (np.ndarray, optional): A list of pulsar pair separations from the OS [npair].
+        rho (np.ndarray, optional): A list of pulsar pair correlations [npair].
             NOTE: rho is normalized by the OS value, making this slightly different from 
             what the OS uses. (i.e. OS calculates \hat{A}^2 * ORF while this uses ORF).
-        sig (np.ndarray): A list of 1-sigma uncertainties on rho [npair].
-        os (float): The OS' fit A^2 value.
+        sig (np.ndarray, optional): A list of 1-sigma uncertainties on rho [npair].
+        os (float, optional): The OS' fit A^2 value.
+        pair_cov (np.ndarray, optional): The pair covariance matrix [npair x npair].
         l_max (int): The maximum l value for spherical harmonics.
         nside (int): The nside of the healpix sky pixelization.
         npix (int): The number of pixels in the healpix pixelization.
@@ -60,9 +61,10 @@ class anis_pta():
         Gamma_lm (np.ndarray): The spherical harmonic basis [npair x ndim].
     """
 
-    def __init__(self, psrs_theta, psrs_phi, xi = None, rho = None, sig = None, os = None, 
-                 l_max = 6, nside = 2, mode = 'power_basis', use_physical_prior = False, 
-                 include_pta_monopole = False, pair_idx = None):
+    def __init__(self, psrs_theta, psrs_phi, xi = None, rho = None, sig = None, 
+                 os = None, pair_cov = None, l_max = 6, nside = 2, mode = 'power_basis', 
+                 use_physical_prior = False, include_pta_monopole = False, 
+                 pair_idx = None):
         """Constructor for the anis_pta class.
 
         This function will construct an instance of the anis_pta class. This class
@@ -73,9 +75,7 @@ class anis_pta():
         you can also use the method set_os_data() to set these values after construction.
         
         Args:
-            psrs_theta (np.ndarray): An array of pulsar position theta.
-            psrs_phi (np.ndarray): An array of pulsar position phi.
-            
+
         """
         # Pulsar positions
         self.psrs_theta = psrs_theta if type(psrs_theta) is np.ndarray else np.array(psrs_theta)
@@ -98,8 +98,8 @@ class anis_pta():
                 self.xi = xi
         else:
             self.xi = self._get_xi()
-        self.rho, self.sig, self.os = None, None, None
-        self.set_os_data(rho, sig, os)
+        self.rho, self.sig, self.os, self.pair_cov = None, None, None, None
+        self.set_os_data(rho, sig, os, pair_cov)
         
         # Check if pair_idx is valid
         if len(self.pair_idx) != self.npairs:
@@ -125,7 +125,7 @@ class anis_pta():
         if mode in ['power_basis', 'sqrt_power_basis', 'hybrid']:
             self.mode = mode
         else:
-            raise ValueError("mode must be either 'power_basis' or 'sqrt_power_basis'")
+            raise ValueError("mode must be either 'power_basis','sqrt_power_basis' or 'hybrid'")
 
         
         self.sqrt_basis_helper = CG.clebschGordan(l_max = self.l_max)
@@ -152,19 +152,23 @@ class anis_pta():
 
         return None
     
-    def set_os_data(self, rho=None, sig=None, os=None):
+    
+    def set_os_data(self, rho=None, sig=None, os=None, pair_cov=None):
         """Set the OS data for the anis_pta object.
 
         This function allows you to set the OS data for the anis_pta object 
         after construction. This allows users to use the same anis_pta object
         with different OS data from noise marginalization or per-frequency 
         analysis. xi is not required and if excluded will be calculated from pulsar
-        positions.
+        positions. This function will normalize the rho, sig, and pair_cov by the 
+        OS (A^2) value, making self.rho, self.sig, and self.pair_cov represent only 
+        the correlations.
 
         Args:
-            rho (list): A list of pulsar pair correlated amplitudes (<rho> = <A^2*ORF>).
-            sig (list): A list of 1-sigma uncertaintties on rho.
-            os (float): The OS' fit A^2 value.
+            rho (list, optional): A list of pulsar pair correlated amplitudes (<rho> = <A^2*ORF>).
+            sig (list, optional): A list of 1-sigma uncertaintties on rho.
+            os (float, optional): The OS' fit A^2 value.
+            pair_cov (np.ndarray, optional): The pair covariance matrix [npair x npair].
         """
         # Read in OS and normalize cross-correlations by OS. 
         # (i.e. get <rho/OS> = <ORF>)
@@ -177,12 +181,55 @@ class anis_pta():
             self.rho = None
             self.sig = None
             self.os = None
+
+        if pair_cov is not None:
+            self.pair_cov = pair_cov / self.os**2
+        else:
+            self.pair_cov = None
         
+        # Set Covariance matrix inverse
+        self.N_mat_inv = self._get_N_mat_inv()
+
+
+    def _get_N_mat_inv(self, ret_cond = False):
+        """A method to calculate the inverse of the pair covariance matrix N.
+
+        This function will calculate the inverse of the pair covariance matrix N.
+        If the pair covariance matrix is not supplied, it will use a diagonal matrix
+        consisting of the squared sig values. This function will use the woodbury
+        identity to calculate the inverse of N if the pair covariance matrix is supplied,
+        increasing the stability of the inverse.
+
+        Args:
+            ret_cond (bool, optional): A flag to return the condition number of the 
+                covariance matrix. Only useful when using pair covariance.
+
+        Returns:
+            np.ndarray or tuple: The inverse of the pair covariance matrix N. If ret_cond
+                is True, it will return a tuple containing the inverse and the condition
+                number of the covariance matrix.
+        """
+        if self.pair_cov is not None:
+            A = np.diag(self.sig ** 2)
+            K = self.pair_cov - A
+            In = np.eye(A.shape[0])
+            if ret_cond:
+                N_mat_inv, cond = utils.woodbury_inverse(A, In, In, K, ret_cond = True)
+                return N_mat_inv, cond
+            
+            N_mat_inv = utils.woodbury_inverse(A, In, In, K)
+        else:
+            N_mat_inv = np.diag( 1 / self.sig ** 2 )
+
+        return N_mat_inv
+        
+
     def _get_radec(self):
         """Get the pulsar positions in RA and DEC."""
         psr_ra = self.psrs_phi
         psr_dec = (np.pi/2) - self.psrs_theta
         return psr_ra, psr_dec
+
 
     def _get_xi(self):
         """Calculate the angular separation between pulsar pairs.
@@ -210,6 +257,7 @@ class anis_pta():
         xi = np.arccos( pos_dot )
 
         return np.squeeze(xi)
+    
 
     def _fplus_fcross(self, psrtheta, psrphi, gwtheta, gwphi):
         """Compute the antenna pattern functions. for each pulsar.
@@ -252,6 +300,7 @@ class anis_pta():
         fcross = (np.dot(m, phat)*np.dot(n, phat)) / (1 - np.dot(omhat, phat))
 
         return fplus, fcross
+    
 
     def antenna_response(self):
         """A function to compute the antenna response matrix R_{ab,k}.
@@ -278,6 +327,7 @@ class anis_pta():
                 F_mat[ii][kk] =  (pp_1 * pp_2 + pc_1 * pc_2)  * 1.5 / (self.npix)
 
         return F_mat
+    
 
     def get_pure_HD(self):
         """Calculate the Hellings and Downs correlation for each pulsar pair.
@@ -295,6 +345,7 @@ class anis_pta():
         hd_curve = 1.5 * xx * np.log(xx) - xx / 4 + 0.5
 
         return hd_curve
+    
 
     def orf_from_clm(self, params):
         """A function to calculate the ORF from the clm values.
@@ -321,6 +372,7 @@ class anis_pta():
         orf = amp2 * np.dot(self.F_mat, sh_map)
 
         return np.longdouble(orf)
+    
 
     def clmFromAlm(self, alm):
         """A function to convert alm values to clm values.
@@ -335,7 +387,7 @@ class anis_pta():
         Returns:
             np.ndarray: An array of clm values.
         """
-        nalm = len(alm)
+        #nalm = len(alm)
         #maxl = int(np.sqrt(9.0 - 4.0 * (2.0 - 2.0 * nalm)) * 0.5 - 1.5)  # Really?
         maxl = self.l_max
         nclm = (maxl + 1) ** 2
@@ -362,140 +414,202 @@ class anis_pta():
 
         return clm
 
-    def max_lkl_pixel(self, cutoff = 0, return_fac1 = False, use_svd_reg = False, reg_type = 'l2', alpha = 0):
+    def fisher_matrix_sph(self):
+        """A method to calculate the Fisher matrix for the spherical harmonic basis.
 
-        N_mat = np.zeros((len(self.rho), len(self.rho)))
-        N_mat_inv = np.zeros((len(self.rho), len(self.rho)))
+        A method which calculates the fisher matrix for the spherical harmonic basis.
+        This method will use pair covariance if self.pair_cov is not None, otherwise
+        it will use a diagonal matrix with the self.sig values.
 
-        N_mat[np.diag_indices(N_mat.shape[0])] = self.sig ** 2
-        N_mat_inv[np.diag_indices(N_mat_inv.shape[0])] = 1 / self.sig ** 2
+        Returns:
+            np.array: The Fisher matrix for the spherical harmonic basis. [n_clm x n_clm]
+        """
+        if self.pair_cov is not None:
+            A = np.diag(self.sig ** 2)
+            K = self.pair_cov - A
+            In = np.eye(A.shape[0])
+            N_mat_inv = utils.woodbury_inverse(A, In, In, K)
+        else:
+            N_mat_inv = np.diag( 1 / self.sig ** 2 )
 
-        sv = sl.svd(np.matmul(self.F_mat.transpose(), np.matmul(N_mat_inv, self.F_mat)), compute_uv = False)
+        F_mat_clm = self.Gamma_lm.transpose()
+
+        fisher_mat = F_mat_clm.T @ N_mat_inv @ F_mat_clm 
+
+        return fisher_mat
+
+
+    def fisher_matrix_pixel(self):
+        """A method to calculate the Fisher matrix for the pixel basis.
+
+        A method which calculates the fisher matrix for the pixel basis. If self.pair_cov
+        is not None, it will use the pair covariance matrix, otherwise it will use a
+        diagonal matrix with the self.sig values.
+
+        Returns:
+            np.ndarray: The Fisher matrix for the pixel basis. [npix x npix]
+        """
+
+        if self.pair_cov is not None:
+            A = np.diag(self.sig ** 2)
+            K = self.pair_cov - A
+            In = np.eye(A.shape[0])
+            N_mat_inv = utils.woodbury_inverse(A, In, In, K)
+        else:
+            N_mat_inv = np.diag( 1 / self.sig ** 2 )
+
+        fisher_mat = self.F_mat.T @ N_mat_inv @ self.F_mat
+        return fisher_mat
+    
+
+    def max_lkl_pixel(self, cutoff = 0, return_fac1 = False, use_svd_reg = False, 
+                      reg_type = 'l2', alpha = 0):
+        """A method to calculate the maximum likelihood pixel values.
+
+        This method calculates the maximum likelihood pixel values while allowing
+        for covariance between pixels. This method is similar to that of the
+        get_radiometer_map method, but allows for covariance between pixels, and 
+        use regression to find solutions through forward modeling.
+
+        Args:
+            cutoff (int, optional): _description_. Defaults to 0.
+            return_fac1 (bool, optional): _description_. Defaults to False.
+            use_svd_reg (bool, optional): _description_. Defaults to False.
+            reg_type (str, optional): _description_. Defaults to 'l2'.
+            alpha (int, optional): _description_. Defaults to 0.
+
+        Returns:
+            tuple: _description_
+        """
+        FNF = self.F_mat.T @ self.N_mat_inv @ self.F_mat 
+        sv = sl.svd(FNF, compute_uv = False,)
 
         cn = np.max(sv) / np.min(sv)
 
         if use_svd_reg:
-
             abs_cutoff = cutoff * np.max(sv)
-
-            fac1 = sl.pinvh(np.matmul(self.F_mat.transpose(), np.matmul(N_mat_inv, self.F_mat)), cond = abs_cutoff)
-
-            fac2 = np.matmul(self.F_mat.transpose(), np.matmul(N_mat_inv, self.rho))
-
+            fac1 = sl.pinvh( FNF, cond = abs_cutoff )
+            fac2 = self.F_mat.T @ self.N_mat_inv @ self.rho
             pow_err = np.sqrt(np.diag(fac1))
-
-            power = np.matmul(fac1, fac2)
+            power = fac1 @ fac2
 
         else:
-
             diag_identity = np.diag(np.full(self.F_mat.shape[1], 1))
-
-            fac1r = sl.pinvh(np.matmul(self.F_mat.transpose(), np.matmul(N_mat_inv, self.F_mat)) + alpha * diag_identity)
-
+            fac1r = sl.pinvh(FNF + alpha * diag_identity)
             pow_err = np.sqrt(np.diag(fac1r))
-
-            clf = LinearRegression(regularization = reg_type, fit_intercept = False, kwds = dict(alpha = alpha))
-
-            clf.fit(self.F_mat, self.rho, self.sig)
-
+            clf = LinearRegression(regularization = reg_type, fit_intercept = False, 
+                                   kwds = dict(alpha = alpha))
+            
+            if self.pair_cov is not None:
+                clf.fit(self.F_mat, self.rho, self.pair_cov)
+            else:
+                clf.fit(self.F_mat, self.rho, self.sig)
             power = clf.coef_
 
+        if return_fac1:
+            return power, pow_err, cn, sv, fac1
         return power, pow_err, cn, sv
-
-    def fisher_matrix_sph(self):
-
-        N_mat = np.zeros((len(self.rho), len(self.rho)))
-        N_mat_inv = np.zeros((len(self.rho), len(self.rho)))
-
-        N_mat[np.diag_indices(N_mat.shape[0])] = self.sig ** 2
-        N_mat_inv[np.diag_indices(N_mat_inv.shape[0])] = 1 / self.sig ** 2
-
-        F_mat_clm = self.Gamma_lm.transpose()
-
-        fisher_mat = np.matmul(F_mat_clm.transpose(), np.matmul(N_mat_inv, F_mat_clm))
-
-        return fisher_mat
-
-    def fisher_matrix_pixel(self):
-
-        N_mat = np.zeros((len(self.rho), len(self.rho)))
-        N_mat_inv = np.zeros((len(self.rho), len(self.rho)))
-
-        N_mat[np.diag_indices(N_mat.shape[0])] = self.sig ** 2
-        N_mat_inv[np.diag_indices(N_mat_inv.shape[0])] = 1 / self.sig ** 2
-
-        fisher_mat = np.matmul(self.F_mat.transpose(), np.matmul(N_mat_inv, self.F_mat))
-
-        return fisher_mat
+    
 
     def get_radiometer_map(self):
+        """A method to get the radiometer pixel map.
 
-        N_mat = np.zeros((len(self.rho), len(self.rho)))
-        N_mat_inv = np.zeros((len(self.rho), len(self.rho)))
+        This method calculates the radiometer pixel map for all pixels. This method
+        calculates power per pixel assuming there is no power in other pixels.
+
+        Returns:
+            tuple: A tuple of 2 np.ndarrays containing the pixel power map and the
+                pixel power map error.
+        """
+        if self.pair_cov is not None:
+            A = np.diag(self.sig ** 2)
+            K = self.pair_cov - A
+            In = np.eye(A.shape[0])
+            N_mat_inv = utils.woodbury_inverse(A, In, In, K)
+        else:
+            N_mat_inv = np.diag( 1 / self.sig ** 2 )
     
-        N_mat[np.diag_indices(N_mat.shape[0])] = self.sig ** 2
-        N_mat_inv[np.diag_indices(N_mat_inv.shape[0])] = 1 / self.sig ** 2
+        dirty_map = self.F_mat.T @ N_mat_inv @ self.rho
     
-        dirty_map = np.matmul(self.F_mat.transpose(), np.matmul(N_mat_inv, self.rho))
-    
-        #Calculate radiometer map
-    
+        # Calculate radiometer map, (i.e. no covariance between pixels)
+        # If you take only the diagonal elements of the fisher matrix, 
+        # you assume there is no covariance between pixels, so it will calculate
+        # the power in each pixel assuming no power in others.
+
+        # Get the full fisher matrix
         fisher_mat = self.fisher_matrix_pixel()
+        # Get only the diagonal elements and invert
+        fisher_diag_inv = np.diag( 1/np.diag(fisher_mat) )
     
-        f_diag_ele = np.diag(fisher_mat)
-    
-        f_diag = np.zeros((len(f_diag_ele), len(f_diag_ele)))
-        f_diag[np.diag_indices(f_diag.shape[0])] =  f_diag_ele
-    
+        # Solve
+        radio_map = fisher_diag_inv @ dirty_map
+
+        # The error needs to be normalized by the area of the pixel
         pix_area = hp.nside2pixarea(nside = self.nside)
-        radio_map = np.matmul(np.linalg.inv(f_diag), dirty_map)
         radio_map_n = radio_map * 4 * np.pi / trapz(radio_map, dx = pix_area)
     
-        radio_map_err = np.sqrt(np.diag(np.linalg.inv(f_diag))) * 4 * np.pi / trapz(radio_map, dx = pix_area)
+        radio_map_err = np.sqrt(np.diag(fisher_diag_inv)) * 4 * np.pi / trapz(radio_map, dx = pix_area)
     
         return radio_map_n, radio_map_err
 
+
     def max_lkl_clm(self, cutoff = 0, use_svd_reg = False, reg_type = 'l2', alpha = 0):
+        """Compute the max likelihood clm values.
 
-        N_mat = np.zeros((len(self.rho), len(self.rho)))
-        N_mat_inv = np.zeros((len(self.rho), len(self.rho)))
+        A method to compute the maximum likelihood clm values. This method uses
+        the Fisher matrix for the spherical harmonic basis to calculate the
+        maximum likelihood clm values. This method allows for the use of SVD
+        regularization or other regularization methods found in 
+        astroML.linear_model.LinearRegression if use_svd_reg is False. If 
+        use_svd_reg is True, it will solve the linear system using the SVD, otherwise
+        it will use the LinearRegression to solve the system using forward modeling.
 
-        N_mat[np.diag_indices(N_mat.shape[0])] = self.sig ** 2
-        N_mat_inv[np.diag_indices(N_mat_inv.shape[0])] = 1 / self.sig ** 2
+        Args:
+            cutoff (float): The minimum allowed singular value for the SVD.
+            use_svd_reg (bool): A flag to use linear solving with SVD regularization.
+            reg_type (str, optional): The type of regularization to use with LinearRegression. 
+                Defaults to 'l2'.
+            alpha (float, optional): Optional jitter to add to the diagonal of the Fisher matrix
+                when using LinearRegression. Defaults to 0.
 
-        F_mat_clm = self.Gamma_lm.transpose()
+        Returns:
+            tuple: A tuple of 4 np.ndarrays containing the clm values, the clm value errors,
+                the condition number of the Fisher matrix, and the singular values of the Fisher matrix.
+        """
+        F_mat_clm = self.Gamma_lm.T
 
-        sv = sl.svd(np.matmul(F_mat_clm.transpose(), np.matmul(N_mat_inv, F_mat_clm)), compute_uv = False)
+        FNF_clm = F_mat_clm.T @ self.N_mat_inv @ F_mat_clm
+        sv = sl.svd( FNF_clm, compute_uv = False)
 
         cn = np.max(sv) / np.min(sv)
 
         if use_svd_reg:
-
             abs_cutoff = cutoff * np.max(sv)
 
-            fac1 = sl.pinvh(np.matmul(F_mat_clm.transpose(), np.matmul(N_mat_inv, F_mat_clm)), cond = abs_cutoff)
+            fac1 = sl.pinvh(FNF_clm, cond = abs_cutoff)
+            fac2 = F_mat_clm.T @ self.N_mat_inv @ self.rho
 
-            fac2 = np.matmul(F_mat_clm.transpose(), np.matmul(N_mat_inv, self.rho))
-
-            clms = np.matmul(fac1, fac2)
-
+            clms = fac1 @ fac2
             clm_err = np.sqrt(np.diag(fac1))
 
         else:
+            diag_identity = np.diag(np.ones(self.clm_size))
 
-            diag_identity = np.diag(np.full(F_mat_clm.shape[1], 1.0))
-
-            fac1r = sl.pinvh(np.matmul(F_mat_clm.transpose(), np.matmul(N_mat_inv, F_mat_clm)) + alpha * diag_identity)
+            fac1r = sl.pinvh(FNF_clm + alpha * diag_identity)
 
             clf = LinearRegression(regularization = reg_type, fit_intercept = False, kwds = dict(alpha = alpha))
 
-            clf.fit(F_mat_clm, self.rho, self.sig)
+            if self.pair_cov is not None:
+                clf.fit(F_mat_clm, self.rho, self.pair_cov)
+            else:
+                clf.fit(F_mat_clm, self.rho, self.sig)
 
             clms = clf.coef_
 
             clm_err = np.sqrt(np.diag(fac1r))
 
         return clms, clm_err, cn, sv
+
 
     def setup_lmfit_parameters(self):
 
