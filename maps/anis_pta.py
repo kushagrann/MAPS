@@ -188,7 +188,8 @@ class anis_pta():
             self.pair_cov = None
         
         # Set Covariance matrix inverse
-        self.N_mat_inv = self._get_N_mat_inv()
+        if self.sig is not None:
+            self.N_mat_inv = self._get_N_mat_inv()
 
 
     def _get_N_mat_inv(self, ret_cond = False):
@@ -265,18 +266,20 @@ class anis_pta():
         This function comes primarily from NX01 (A propotype NANOGrav analysis 
         pipeline). This function supports vectorization for multiple pulsar positions 
         and multiple gw positions. 
+        NOTE: This function uses the GW propogation direction for gwtheta and gwphi
+        rather than the source direction (i.e. this method uses the vector from the
+        source to the observer)
         
         Args:
             psrtheta (np.ndarray): An array of pulsar theta positions.
             psrphi (np.ndarray): An array of pulsar phi positions.
-            gwtheta (np.ndarray): An array of GW theta positions.
-            gwphi (np.ndarray): An array of GW phi positions.
+            gwtheta (np.ndarray): An array of GW theta propogation directions.
+            gwphi (np.ndarray): An array of GW phi propogation directions.
         
         Returns:
             tuple: A tuple of two arrays, (Fplus, Fcross) containing the antenna 
                 pattern functions for each pulsar.
         """
-
         # define variable for later use
         cosgwtheta, cosgwphi = np.cos(gwtheta), np.cos(gwphi)
         singwtheta, singwphi = np.sin(gwtheta), np.sin(gwphi)
@@ -287,8 +290,6 @@ class anis_pta():
         omhat = np.array([-singwtheta*cosgwphi, -singwtheta*singwphi, -cosgwtheta])
 
         # pulsar location
-        #ptheta = np.pi/2 - psr.decj
-        #pphi = psr.raj
         ptheta = psrtheta
         pphi = psrphi
 
@@ -308,6 +309,9 @@ class anis_pta():
         This function computes the antenna response matrix R_{ab,k} where ab 
         represents the pulsar pair made of pulsars a and b, and k represents
         the pixel index. 
+        NOTE: This function uses the GW propogation direction for gwtheta and gwphi
+        rather than the source direction (i.e. this method uses the vector from the
+        source to the observer)
 
         Returns:
             np.ndarray: An array of shape (npairs, npix) containing the antenna
@@ -361,8 +365,8 @@ class anis_pta():
         Returns:
             np.ndarray: An array of ORF values for each pulsar pair.
         """
-        #Using supplied clm values, calculate the corresponding power map
-        #and calculate the ORF from that power map (convoluted, I know)
+        # Using supplied clm values, calculate the corresponding power map
+        # and calculate the ORF from that power map (convoluted, I know)
 
         amp2 = 10 ** params[0]
         clm = params[1:]
@@ -413,6 +417,7 @@ class anis_pta():
                 clmindex += 1
 
         return clm
+    
 
     def fisher_matrix_sph(self):
         """A method to calculate the Fisher matrix for the spherical harmonic basis.
@@ -516,6 +521,10 @@ class anis_pta():
 
         This method calculates the radiometer pixel map for all pixels. This method
         calculates power per pixel assuming there is no power in other pixels.
+        NOTE: This function uses the GW propogation direction for each pixel
+        rather than the source direction (i.e. this method uses the vector from the
+        source to the observer). Use utils.invert_omega() to get the source direction
+        instead!
 
         Returns:
             tuple: A tuple of 2 np.ndarrays containing the pixel power map and the
@@ -612,57 +621,73 @@ class anis_pta():
 
 
     def setup_lmfit_parameters(self):
+        """A method to setup the lmfit Parameters object for the search.
 
-        #This shape is to fit with lmfit's Parameter.add_many();
-        #Format is (name, value, vary, min, max, expr, brute_step)
+        NOTE: This method is designed specifcally for the sqrt power basis. As
+        such, it will not work for the power basis and may throw exceptions!
+
+        TODO: Make this function work for other bases!
+
+        Returns:
+            lmfit.Parameters: The lmfit Parameters object
+        """
+        # This shape is to fit with lmfit's Parameter.add_many();
+        # Format is (name, value, vary, min, max, expr, brute_step)
+        params = []
+
         if self.include_pta_monopole:
-            x0 = np.full((self.ndim + 1, 7), 0.0, dtype = object)
+            # (name, value, vary, min, max, expr, brute_step)
+            x = ['A_mono', np.log10(nr.uniform(1e-2, 3)), True, np.log10(1e-2), np.log10(1e2), None, None]
+            params.append(x)
+
+            x = ['A2', np.log10(nr.uniform(1e-2, 3)), True, np.log10(1e-2), np.log10(1e2), None, None]
+            params.append(x)
         else:
-            x0 = np.full((self.ndim, 7), 0.0, dtype = object)
+            x = ['A2', np.log10(nr.uniform(0, 3)), True, np.log10(1e-2), np.log10(1e2), None, None]
+            params.append(x)
 
-        if self.include_pta_monopole:
-            x0[0] = np.array(['A_mono', np.log10(nr.uniform(1e-2, 3)), True, np.log10(1e-2), np.log10(1e2), None, None])
-            x0[1] = np.array(['A2', np.log10(nr.uniform(1e-2, 3)), True, np.log10(1e-2), np.log10(1e2), None, None])
-
-        else:
-            x0[0] = np.array(['A2', np.log10(nr.uniform(0, 3)), True, np.log10(1e-2), np.log10(1e2), None, None])
-
-        if self.include_pta_monopole:
-            idx = 2
-        else:
-            idx = 1
-
+        # Now for non-monopole terms!
         for ll in range(self.blmax + 1):
             for mm in range(0, ll + 1):
 
                 if ll == 0:
-                    x0[idx] = np.array(['b_{}{}'.format(ll, mm), 1., False, None, None, None, None])
-                    idx += 1
-
+                    # (name, value, vary, min, max, expr, brute_step)
+                    x = ['b_{}{}'.format(ll, mm), 1., False, None, None, None, None]
+                    params.append(x)
+                    
                 elif mm == 0:
-                    x0[idx] = 0 #nr.uniform(0, 5)
-                    x0[idx] = np.array(['b_{}{}'.format(ll, mm), nr.uniform(-1, 1), True, None, None, None, None])
-                    idx += 1
+                    # (name, value, vary, min, max, expr, brute_step)
+                    x = ['b_{}{}'.format(ll, mm), nr.uniform(-1, 1), True, None, None, None, None]
+                    params.append(x)
 
                 elif mm != 0:
-                    #x0[idx] = 0 #nr.uniform(0, 5)
+                    # (name, value, vary, min, max, expr, brute_step)
                     #Amplitude is always >= 0; initial guess set to small non-zero value
-                    x0[idx] = np.array(['b_{}{}_amp'.format(ll, mm), nr.uniform(0, 3), True, 0, None, None, None])
-                    #x0[idx + 1] = 0 #nr.uniform(0, 2 * np.pi)
-                    x0[idx + 1] = np.array(['b_{}{}_phase'.format(ll, mm), nr.uniform(0, 2 * np.pi), True, 0, 2 * np.pi, None, None])
-                    idx += 2
+                    x = ['b_{}{}_amp'.format(ll, mm), nr.uniform(0, 3), True, 0, None, None, None]
+                    params.append(x)
+                    
+                    x = ['b_{}{}_phase'.format(ll, mm), nr.uniform(0, 2 * np.pi), True, 0, 2 * np.pi, None, None]
+                    params.append(x)
 
-        #Convert the numpy array to tuple of tuples to use with lmfit Parameter
-        x0_tuple = tuple(map(tuple, x0))
+        lmf_params = Parameters()
+        lmf_params.add_many(*params)
 
-        #Setup the Parameters() object
-        params = Parameters()
-
-        params.add_many(*x0_tuple)
-
-        return params
+        return lmf_params
+    
 
     def max_lkl_sqrt_power(self, params = np.array(())):
+        """A method to calculate the maximum likelihood b_lms for the sqrt power basis.
+
+        This method uses lmfit to minimize the chi-square to find the maximum likelihood
+        b_lms for the sqrt power basis. Post-processing help can be found in the utils 
+        and lmfit documentation.
+
+        Args:
+            params (np.ndarray, optional): ???. Defaults to an empty array.
+
+        Returns:
+            lmfit.Minimizer.minimize: The lmfit minimizer object for post-processing.
+        """
 
         if len(params) == 0:
             params = self.setup_lmfit_parameters()
@@ -674,7 +699,7 @@ class anis_pta():
             #Get the input parameters as a dictionary
             param_dict = params.valuesdict()
 
-            #Conver the values to a numpy array for using in other pta_anis functions
+            #Convert the values to a numpy array for using in other pta_anis functions
             param_arr = np.array(list(param_dict.values()))
 
             #Do the thing
@@ -701,7 +726,20 @@ class anis_pta():
         #Post-processing help in utils and lmfit documentation
         return opt_params
 
+
     def prior(self, params):
+        """A method to calculate the prior for power and sqrt power bases for the given parameters.
+
+        This method returns the prior given a parameter values for the clm (for
+        the power bases) or the blm (for the sqrt power bases). This method also
+        takes into acount whether you enable the physical prior or not.
+
+        Args:
+            params (np.ndarray or list): An array of parameters to calculate the prior for.
+
+        Returns:
+            float: The (non-log) prior value for the given parameters.
+        """
 
         if self.mode == 'power_basis':
             amp2 = params[0]
@@ -752,6 +790,7 @@ class anis_pta():
                             idx += 2
 
                 return np.longdouble((1 / 10) ** (len(params) - 1))
+
 
     def logLikelihood(self, params):
 
@@ -812,6 +851,16 @@ class anis_pta():
         #return np.prod(gauss, dtype = np.longdouble)
 
     def logPrior(self, params):
+        """A method to calculate the log of the prior for the given parameters.
+
+        NOTE: This function simply returns the np.log() for the prior() function.
+
+        Args:
+            params (np.ndarray or list): An array of parameters to calculate the prior for.
+
+        Returns:
+            float: The log_10 of the prior value for the given parameters.
+        """
         return np.log(self.prior(params))
 
     def get_random_sample(self):
