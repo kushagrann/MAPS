@@ -18,22 +18,53 @@ from scipy.interpolate import interp1d
 from astroML.linear_model import LinearRegression
 
 def invert_omega(hp_map):
-    #Utility function to covner sky map such that it goes from GWs pointing in direction of GW propagation to pointing towards source of GWs
-    nside = hp.get_nside(hp_map)
+    """A function to change between GW propogation direction and GW source direction.
 
-    all_pix_idx = np.array([ ii for ii in range(hp.nside2npix(nside = nside)) ])
+    This function takes a healpy map or maps which has either GW propogation direction 
+    or GW source direction and swaps to the other.  This function supports lists or 
+    arrays of healpy maps indicated to the function with len(hp_map.shape)>1.
 
-    all_pix_x, all_pix_y, all_pix_z = hp.pix2vec(nside = nside, ipix = all_pix_idx)
+    Args:
+        hp_map (np.ndarray or list): A healpy map or array or list of healpy maps
 
-    inv_all_pix_x = -1 * all_pix_x
-    inv_all_pix_y = -1 * all_pix_y
-    inv_all_pix_z = -1 * all_pix_z
+    Returns:
+        list: A list of healpy maps or a single healpy map with inverted direction
+    """
+    arg_arr = np.array(hp_map)
+    if len(arg_arr.shape) == 1:
+        arg_arr = arg_arr[None, :]
 
-    inv_pix_idx = [hp.vec2pix(nside = nside, x = xx, y = yy, z = zz) for (xx, yy, zz) in zip(inv_all_pix_x, inv_all_pix_y, inv_all_pix_z)]
+    inv_map = []
+    for mp in arg_arr:
+        nside = hp.get_nside(mp)
+
+        all_pix_idx = np.array([ ii for ii in range(hp.nside2npix(nside = nside)) ])
+
+        all_pix_x, all_pix_y, all_pix_z = hp.pix2vec(nside = nside, ipix = all_pix_idx)
+
+        inv_all_pix_x = -1 * all_pix_x
+        inv_all_pix_y = -1 * all_pix_y
+        inv_all_pix_z = -1 * all_pix_z
+
+        inv_pix_idx = [hp.vec2pix(nside = nside, x = xx, y = yy, z = zz) for (xx, yy, zz) in zip(inv_all_pix_x, inv_all_pix_y, inv_all_pix_z)]
+        inv_map.append(mp[inv_pix_idx])
+
+    if len(inv_map) == 1:
+        return inv_map[0]
     
-    return hp_map[inv_pix_idx]
+    return inv_map
+
     
 def convert_blm_params_to_clm(pta_anis, blm_params):
+    """A function to convert a set of blm parameters to clm parameters.
+
+    Args:
+        pta_anis (anis_pta.pta_anis): The anisotropic PTA object
+        blm_params (np.ndarray): The array of b_lm parameters
+
+    Returns:
+        clms: The array of c_lm parameters
+    """
 
     blm = pta_anis.sqrt_basis_helper.blm_params_2_blms(blm_params[1:])
 
@@ -48,6 +79,7 @@ def convert_blm_params_to_clm(pta_anis, blm_params):
     #clms_rvylm[0] *= 12.56637061
 
     return clms_rvylm
+
 
 def signal_to_noise(pta, lm_params = None):
 
@@ -87,6 +119,7 @@ def signal_to_noise(pta, lm_params = None):
 
     return total_sn, iso_sn, anis_sn
 
+
 def angular_power_spectrum(pta_anis, clm):
 
     maxl = int(np.sqrt(clm.shape[0]))
@@ -114,6 +147,7 @@ def angular_power_spectrum(pta_anis, clm):
 
     return C_l
 
+
 def draw_random_sample(ip_arr, bins = 50, nsamp = 10):
 
     counts, bin_ed = np.histogram(ip_arr, bins = bins, density = True)
@@ -126,6 +160,7 @@ def draw_random_sample(ip_arr, bins = 50, nsamp = 10):
     rn_draw = nr.uniform(low = cdf.min(), high = cdf.max(), size = nsamp)
 
     return interp_func(rn_draw)
+
 
 def posterior_sampled_Cl_skymap(anis_pta, chain, burn = 0, n_draws = 100):
     """
