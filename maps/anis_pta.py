@@ -98,7 +98,7 @@ class anis_pta():
                 self.xi = xi
         else:
             self.xi = self._get_xi()
-        self.rho, self.sig, self.os, self.pair_cov = None, None, None, None
+        self.rho, self.sig, self.os, self.pair_cov, self.N_mat_inv = None, None, None, None, None
         self.set_os_data(rho, sig, os, pair_cov)
         
         # Check if pair_idx is valid
@@ -162,7 +162,9 @@ class anis_pta():
         analysis. xi is not required and if excluded will be calculated from pulsar
         positions. This function will normalize the rho, sig, and pair_cov by the 
         OS (A^2) value, making self.rho, self.sig, and self.pair_cov represent only 
-        the correlations.
+        the correlations. 
+        NOTE: If using pair covariance you still need to supply this function
+        with the pairwise uncertainties as well!
 
         Args:
             rho (list, optional): A list of pulsar pair correlated amplitudes (<rho> = <A^2*ORF>).
@@ -422,24 +424,12 @@ class anis_pta():
     def fisher_matrix_sph(self):
         """A method to calculate the Fisher matrix for the spherical harmonic basis.
 
-        A method which calculates the fisher matrix for the spherical harmonic basis.
-        This method will use pair covariance if self.pair_cov is not None, otherwise
-        it will use a diagonal matrix with the self.sig values.
-
         Returns:
             np.array: The Fisher matrix for the spherical harmonic basis. [n_clm x n_clm]
         """
-        if self.pair_cov is not None:
-            A = np.diag(self.sig ** 2)
-            K = self.pair_cov - A
-            In = np.eye(A.shape[0])
-            N_mat_inv = utils.woodbury_inverse(A, In, In, K)
-        else:
-            N_mat_inv = np.diag( 1 / self.sig ** 2 )
+        F_mat_clm = self.Gamma_lm.T
 
-        F_mat_clm = self.Gamma_lm.transpose()
-
-        fisher_mat = F_mat_clm.T @ N_mat_inv @ F_mat_clm 
+        fisher_mat = F_mat_clm.T @ self.N_mat_inv @ F_mat_clm 
 
         return fisher_mat
 
@@ -447,23 +437,10 @@ class anis_pta():
     def fisher_matrix_pixel(self):
         """A method to calculate the Fisher matrix for the pixel basis.
 
-        A method which calculates the fisher matrix for the pixel basis. If self.pair_cov
-        is not None, it will use the pair covariance matrix, otherwise it will use a
-        diagonal matrix with the self.sig values.
-
         Returns:
             np.ndarray: The Fisher matrix for the pixel basis. [npix x npix]
         """
-
-        if self.pair_cov is not None:
-            A = np.diag(self.sig ** 2)
-            K = self.pair_cov - A
-            In = np.eye(A.shape[0])
-            N_mat_inv = utils.woodbury_inverse(A, In, In, K)
-        else:
-            N_mat_inv = np.diag( 1 / self.sig ** 2 )
-
-        fisher_mat = self.F_mat.T @ N_mat_inv @ self.F_mat
+        fisher_mat = self.F_mat.T @ self.N_mat_inv @ self.F_mat
         return fisher_mat
     
 
@@ -530,15 +507,8 @@ class anis_pta():
             tuple: A tuple of 2 np.ndarrays containing the pixel power map and the
                 pixel power map error.
         """
-        if self.pair_cov is not None:
-            A = np.diag(self.sig ** 2)
-            K = self.pair_cov - A
-            In = np.eye(A.shape[0])
-            N_mat_inv = utils.woodbury_inverse(A, In, In, K)
-        else:
-            N_mat_inv = np.diag( 1 / self.sig ** 2 )
-    
-        dirty_map = self.F_mat.T @ N_mat_inv @ self.rho
+        # Calculate dirty map
+        dirty_map = self.F_mat.T @ self.N_mat_inv @ self.rho
     
         # Calculate radiometer map, (i.e. no covariance between pixels)
         # If you take only the diagonal elements of the fisher matrix, 
@@ -555,14 +525,18 @@ class anis_pta():
 
         # The error needs to be normalized by the area of the pixel
         pix_area = hp.nside2pixarea(nside = self.nside)
-        radio_map_n = radio_map * 4 * np.pi / trapz(radio_map, dx = pix_area)
-    
-        radio_map_err = np.sqrt(np.diag(fisher_diag_inv)) * 4 * np.pi / trapz(radio_map, dx = pix_area)
+        norm = 4 * np.pi / trapz(radio_map, dx = pix_area)
+
+        radio_map_n = radio_map * norm
+        radio_map_err = np.sqrt(np.diag(fisher_diag_inv)) * norm
+
+        radio_map_n = radio_map
+        radio_map_err = np.sqrt(np.diag(fisher_diag_inv))
     
         return radio_map_n, radio_map_err
 
 
-    def max_lkl_clm(self, cutoff = 0, use_svd_reg = False, reg_type = 'l2', alpha = 0):
+    def max_lkl_clm(self, cutoff = None, use_svd_reg = False, reg_type = 'l2', alpha = 0):
         """Compute the max likelihood clm values.
 
         A method to compute the maximum likelihood clm values. This method uses
@@ -574,8 +548,10 @@ class anis_pta():
         it will use the LinearRegression to solve the system using forward modeling.
 
         Args:
-            cutoff (float): The minimum allowed singular value for the SVD.
+            cutoff (float, optional): The minimum relative allowed singular value 
+                for the SVD. Defaults to None.
             use_svd_reg (bool): A flag to use linear solving with SVD regularization.
+                Defaults to False.
             reg_type (str, optional): The type of regularization to use with LinearRegression. 
                 Defaults to 'l2'.
             alpha (float, optional): Optional jitter to add to the diagonal of the Fisher matrix
@@ -587,15 +563,18 @@ class anis_pta():
         """
         F_mat_clm = self.Gamma_lm.T
 
-        FNF_clm = F_mat_clm.T @ self.N_mat_inv @ F_mat_clm
-        sv = sl.svd( FNF_clm, compute_uv = False)
+        FNF_clm = self.fisher_matrix_sph()
 
+        sv = sl.svd(FNF_clm, compute_uv=False)
         cn = np.max(sv) / np.min(sv)
 
         if use_svd_reg:
-            abs_cutoff = cutoff * np.max(sv)
-
-            fac1 = sl.pinvh(FNF_clm, cond = abs_cutoff)
+            # Swapped to np.linalg.pinv for easier implementation
+            if cutoff is not None:
+                fac1 = np.linalg.pinv(FNF_clm, rcond = cutoff)
+            else:
+                fac1 = np.linalg.pinv(FNF_clm)
+                
             fac2 = F_mat_clm.T @ self.N_mat_inv @ self.rho
 
             clms = fac1 @ fac2
@@ -850,6 +829,7 @@ class anis_pta():
         return loglike
         #return np.prod(gauss, dtype = np.longdouble)
 
+
     def logPrior(self, params):
         """A method to calculate the log of the prior for the given parameters.
 
@@ -862,6 +842,7 @@ class anis_pta():
             float: The log_10 of the prior value for the given parameters.
         """
         return np.log(self.prior(params))
+
 
     def get_random_sample(self):
 
@@ -897,10 +878,13 @@ class anis_pta():
 
         return x0
 
+
     def amplitude_scaling_factor(self):
         return 1 / (2 * 6.283185346689728)
 
+
 class anis_hypermodel():
+
 
     def __init__(self, models, log_weights = None, mode = 'sqrt_power_basis', use_physical_prior = True):
 
@@ -926,6 +910,7 @@ class anis_hypermodel():
         self.blmax = int(self.l_max / 2)
         self.clm_size = (self.l_max + 1) ** 2
         self.blm_size = hp.Alm.getsize(self.blmax)
+
 
     def _standard_prior(self, params):
 
@@ -979,6 +964,7 @@ class anis_hypermodel():
 
                 return np.longdouble((1 / 10) ** (len(params) - 1))
 
+
     def logPrior(self, params):
 
         nmodel = int(np.rint(params[0]))
@@ -988,6 +974,7 @@ class anis_hypermodel():
             return -np.inf
 
         return np.log(self._standard_prior(params[1:]))
+
 
     def logLikelihood(self, params):
 
@@ -1000,6 +987,7 @@ class anis_hypermodel():
             active_lnlkl += self.log_weights[nmodel]
 
         return active_lnlkl
+
 
     def get_random_sample(self):
 
