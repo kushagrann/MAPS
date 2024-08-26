@@ -17,6 +17,7 @@ from . import anis_pta as ap
 from scipy.interpolate import interp1d
 from astroML.linear_model import LinearRegression
 
+
 def invert_omega(hp_map):
     """A function to change between GW propogation direction and GW source direction.
 
@@ -82,14 +83,37 @@ def convert_blm_params_to_clm(pta_anis, blm_params):
 
 
 def signal_to_noise(pta, lm_params = None):
+    """A function to compute the SNR of the square-root spherical harmonic anisotropy.
+
+    This function computes the signal-to-noise ratio of anisotropy in the square-root 
+    spherical harmonic model. This function computes equation 17 from the paper
+    Pol, Taylor, Romano 2022. 
+    NOTE: This function only works with the square-root spherical harmonic model.
+
+    Args:
+        pta (anis_pta.anis_pta): The anis_pta object with the signal model
+        lm_params (lmfit.Minimizer.minimize, optional): The lmfit parameters of the
+            minimized solution. Setting to None will compute this inside the function.
+            Defaults to None.
+
+    Returns:
+        tuple: A tuple containing:
+            total_sn (float): The total signal-to-noise ratio
+            iso_sn (float): The isotropic signal-to-noise ratio
+            anis_sn (float): The anisotropic signal-to-noise ratio
+    """
 
     if lm_params is None:
         lm_out = pta.max_lkl_sqrt_power()
     else:
         lm_out = lm_params
 
-    pta_mono = ap.anis_pta(pta.psrs_theta, pta.psrs_phi, pta.xi, pta.rho, pta.sig, nside = pta.nside,
-                            l_max = 0, mode = pta.mode, os = 1, include_pta_monopole = pta.include_pta_monopole) #OS already applied in pta
+    pta_mono = ap.anis_pta(pta.psrs_theta, pta.psrs_phi, pta.xi, pta.rho, pta.sig, 
+                 os = 1, pair_cov = pta.pair_cov, l_max = 0, nside = pta.nside, 
+                 mode = pta.mode, use_physical_prior = pta.use_physical_prior, 
+                 include_pta_monopole = pta.include_pta_monopole, 
+                 pair_idx = pta.pair_idx) #OS already applied in pta
+
     lm_out_mono = pta_mono.max_lkl_sqrt_power()
 
     lp = np.array(list(lm_out.params.valuesdict().values()))
@@ -120,29 +144,34 @@ def signal_to_noise(pta, lm_params = None):
     return total_sn, iso_sn, anis_sn
 
 
-def angular_power_spectrum(pta_anis, clm):
+def angular_power_spectrum(clm):
+    """A function to compute the angular power spectrum from the spherical harmonic coefficients.
+
+    This function computes the angular power spectrum from the spherical harmonic coefficients
+    by taking the average of the square of the coefficients for each l.
+
+    Args:
+        clm (np.ndarray): The array of spherical harmonic coefficients
+
+    Returns:
+        C_l: The angular power spectrum per spherical harmonic l.
+    """
 
     maxl = int(np.sqrt(clm.shape[0]))
-
     new_clm2 = clm ** 2
 
-    C_l = np.full((maxl), 0.0)
-
+    C_l = np.zeros((maxl))
     idx = 0
 
     for ll in range(maxl):
-
         if ll == 0:
             C_l[ll] = new_clm2[ll]
-
             idx += 1
-
         else:
             subset_len = 2 * ll + 1
             subset = np.arange(idx, idx + subset_len)
 
             C_l[ll] = np.sum(new_clm2[subset]) / (2 * ll + 1)
-
             idx = subset[-1]
 
     return C_l
@@ -163,22 +192,25 @@ def draw_random_sample(ip_arr, bins = 50, nsamp = 10):
 
 
 def posterior_sampled_Cl_skymap(anis_pta, chain, burn = 0, n_draws = 100):
-    """
+    """A function to generate posterior sampled sky maps from a chain file.
+
     Return collection of sky maps randomly drawn from posterior
     given an (emcee) chain file sampling the posterior around the
-    maximum likelihood value
+    maximum likelihood value.
 
-    Parameters
-    --------------
-    anis_pta --> the anisotropic PTA object
-    chain --> chain file with posterior samples; expected to be a pd.DataFrame with rows = samples, params = columns
-    burn --> burn-in length (optional)
-    n_draws --> number of draws from chain file to generate the posterior averaged sky map
+    Args:
+        anis_pta (anis_pta.anis_pta): The anisotropic PTA object
+        chain (pd.DataFrame): chain file with posterior samples with rows = samples, params = columns
+        burn (int, optional): burn-in length. Defaults to 0.
+        n_draws (int): number of draws from chain file to generate the posterior averaged sky map.
+            Defaults to 100.
 
-    Returns
-    --------------
-    pow_map --> (n_draws x n_pixel) numpy array of maps corresponding to n_draws from posterior.
-    Cl --> (n_draws x n_Cl) numpy array of C_l values corresponding to n_draws from posterior,
+    Returns:
+        tuple: A tuple containing:
+            pow_map (np.ndarray): (n_draws x n_pixel) numpy array of maps corresponding 
+                to n_draws from posterior.
+            Cl (np.ndarray): (n_draws x n_Cl) numpy array of C_l values corresponding 
+                to n_draws from posterior.
     """
 
     chain_copy = chain.copy()

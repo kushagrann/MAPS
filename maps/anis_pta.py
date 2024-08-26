@@ -513,7 +513,7 @@ class anis_pta():
         # Calculate radiometer map, (i.e. no covariance between pixels)
         # If you take only the diagonal elements of the fisher matrix, 
         # you assume there is no covariance between pixels, so it will calculate
-        # the power in each pixel assuming no power in others.
+        # the power in each pixel assuming no power in others, i.e. radiometer!
 
         # Get the full fisher matrix
         fisher_mat = self.fisher_matrix_pixel()
@@ -529,9 +529,6 @@ class anis_pta():
 
         radio_map_n = radio_map * norm
         radio_map_err = np.sqrt(np.diag(fisher_diag_inv)) * norm
-
-        radio_map_n = radio_map
-        radio_map_err = np.sqrt(np.diag(fisher_diag_inv))
     
         return radio_map_n, radio_map_err
 
@@ -574,7 +571,7 @@ class anis_pta():
                 fac1 = np.linalg.pinv(FNF_clm, rcond = cutoff)
             else:
                 fac1 = np.linalg.pinv(FNF_clm)
-                
+
             fac2 = F_mat_clm.T @ self.N_mat_inv @ self.rho
 
             clms = fac1 @ fac2
@@ -654,7 +651,7 @@ class anis_pta():
         return lmf_params
     
 
-    def max_lkl_sqrt_power(self, params = np.array(())):
+    def max_lkl_sqrt_power(self, params = None):
         """A method to calculate the maximum likelihood b_lms for the sqrt power basis.
 
         This method uses lmfit to minimize the chi-square to find the maximum likelihood
@@ -662,13 +659,13 @@ class anis_pta():
         and lmfit documentation.
 
         Args:
-            params (np.ndarray, optional): ???. Defaults to an empty array.
+            params (lmfit.Parameters, optional): The set of parameter to minimize. Defaults to an empty array.
 
         Returns:
             lmfit.Minimizer.minimize: The lmfit minimizer object for post-processing.
         """
 
-        if len(params) == 0:
+        if params is None:
             params = self.setup_lmfit_parameters()
         else:
             params = params
