@@ -178,6 +178,21 @@ def angular_power_spectrum(clm):
 
 
 def draw_random_sample(ip_arr, bins = 50, nsamp = 10):
+    """A function to draw a random sample from a distribution using inverse transform sampling.
+
+    This function draws nsamp random samples from a user supplied distribution by
+    first computing the cdf, then transforming uniform random numbers into draws 
+    from the original distribution.
+
+    Args:
+        ip_arr (np.ndarray): The input distribution to sample from.
+        bins (int): The number of value bins to use. Use larger values for larger distributions. 
+            Defaults to 50.
+        nsamp (int): The number of random samples to draw. Defaults to 10.
+
+    Returns:
+        np.ndarray: The random samples drawn from the input distribution.
+    """
 
     counts, bin_ed = np.histogram(ip_arr, bins = bins, density = True)
     bin_mid = (bin_ed[1:] + bin_ed[:-1]) / 2.

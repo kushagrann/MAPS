@@ -46,7 +46,7 @@ class anis_pta():
         l_max (int): The maximum l value for spherical harmonics.
         nside (int): The nside of the healpix sky pixelization.
         npix (int): The number of pixels in the healpix pixelization.
-        blmax (int): ???
+        blmax (int): The maximum l value for the sqrt power basis.
         clm_size (int): The number of spherical harmonic modes.
         blm_size (int): The number of spherical harmonic modes for the sqrt power basis.
         gw_theta (np.ndarray): An array of source GW theta positions [npix].
@@ -602,11 +602,10 @@ class anis_pta():
         NOTE: This method is designed specifcally for the sqrt power basis. As
         such, it will not work for the power basis and may throw exceptions!
 
-        TODO: Make this function work for other bases!
-
         Returns:
             lmfit.Parameters: The lmfit Parameters object
         """
+        # TODO: Make this function work for other bases?
         # This shape is to fit with lmfit's Parameter.add_many();
         # Format is (name, value, vary, min, max, expr, brute_step)
         params = []
@@ -769,6 +768,16 @@ class anis_pta():
 
 
     def logLikelihood(self, params):
+        """A method to return the log-likelihood for the given set of parameters.
+
+        This function works with all modes, 'power_basis', 'sqrt_power_basis', and 'hybrid'.
+
+        Args:
+            params (list or np.ndarray): An indexable object containing the parameters.
+
+        Returns:
+            float: The log-likelihood for the given parameters.
+        """
 
         if self.mode == 'hybrid':
 
@@ -842,6 +851,13 @@ class anis_pta():
 
 
     def get_random_sample(self):
+        """A method to get a random sample from the prior distribution.
+
+        This method works with all modes, 'power_basis', 'sqrt_power_basis', and 'hybrid'.
+
+        Returns:
+            np.ndarray: A random sample for all parameters from the prior distribution.
+        """
 
         if self.mode == 'power_basis':
 
@@ -877,6 +893,7 @@ class anis_pta():
 
 
     def amplitude_scaling_factor(self):
+        """A method to calculate the amplitude scaling factor."""
         return 1 / (2 * 6.283185346689728)
 
 
