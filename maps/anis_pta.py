@@ -28,7 +28,7 @@ class anis_pta():
     it with the outputs of the PTA optimal statistic which can be found in
     (enterprise_extensions.frequentist.optimal_statistic or defiant/optimal_statistic).
     While you can include the OS values upon construction (xi, rho, sig, os),
-    you can also use the method set_os_data() to set these values after construction.
+    you can also use the method set_data() to set these values after construction.
 
     Attributes:
         psrs_theta (np.ndarray): An array of pulsar position theta [npsr].
@@ -41,7 +41,7 @@ class anis_pta():
             NOTE: rho is normalized by the OS value, making this slightly different from 
             what the OS uses. (i.e. OS calculates \hat{A}^2 * ORF while this uses ORF).
         sig (np.ndarray, optional): A list of 1-sigma uncertainties on rho [npair].
-        os (float, optional): The OS' fit A^2 value.
+        os (float, optional): The optimal statistic's best-fit A^2 value.
         pair_cov (np.ndarray, optional): The pair covariance matrix [npair x npair].
         l_max (int): The maximum l value for spherical harmonics.
         nside (int): The nside of the healpix sky pixelization.
@@ -72,10 +72,27 @@ class anis_pta():
         it with the outputs of the PTA optimal statistic which can be found in 
         (enterprise_extensions.frequentist.optimal_statistic or defiant/optimal_statistic).
         While you can include the OS values upon construction (xi, rho, sig, os),
-        you can also use the method set_os_data() to set these values after construction.
+        you can also use the method set_data() to set these values after construction.
         
         Args:
+            psrs_theta (np.ndarray): An array of pulsar position theta [npsr].
+            psrs_phi (np.ndarray): An array of pulsar position phi [npsr].
+            xi (np.ndarray, optional): A list of pulsar pair separations from the OS [npair].
+            rho (np.ndarray, optional): A list of pulsar pair correlations [npair].
+            sig (np.ndarray, optional): A list of 1-sigma uncertainties on rho [npair].
+            os (float, optional): The optimal statistic's best-fit A^2 value.
+            pair_cov (np.ndarray, optional): The pair covariance matrix [npair x npair].
+            l_max (int): The maximum l value for spherical harmonics.
+            nside (int): The nside of the healpix sky pixelization.
+            mode (str): The mode of the spherical harmonic decomposition to use.
+                Must be 'power_basis', 'sqrt_power_basis', or 'hybrid'.
+            use_physical_prior (bool): Whether to use physical priors or not.
+            include_pta_monopole (bool): Whether to include the monopole term in the search.
+            pair_idx (np.ndarray, optional): An array of pulsar indices for each pair [npair x 2].
 
+        Raises:
+            ValueError: If the lengths of psrs_theta and psrs_phi are not equal.
+            ValueError: If the length of pair_idx is not equal to the number of pulsar pairs.            
         """
         # Pulsar positions
         self.psrs_theta = psrs_theta if type(psrs_theta) is np.ndarray else np.array(psrs_theta)
@@ -99,7 +116,7 @@ class anis_pta():
         else:
             self.xi = self._get_xi()
         self.rho, self.sig, self.os, self.pair_cov, self.N_mat_inv = None, None, None, None, None
-        self.set_os_data(rho, sig, os, pair_cov)
+        self.set_data(rho, sig, os, pair_cov)
         
         # Check if pair_idx is valid
         if len(self.pair_idx) != self.npairs:
@@ -153,14 +170,14 @@ class anis_pta():
         return None
     
     
-    def set_os_data(self, rho=None, sig=None, os=None, pair_cov=None):
-        """Set the OS data for the anis_pta object.
+    def set_data(self, rho=None, sig=None, os=None, pair_cov=None):
+        """Set the data for the anis_pta object.
 
-        This function allows you to set the OS data for the anis_pta object 
+        This function allows you to set the data for the anis_pta object 
         after construction. This allows users to use the same anis_pta object
-        with different OS data from noise marginalization or per-frequency 
-        analysis. xi is not required and if excluded will be calculated from pulsar
-        positions. This function will normalize the rho, sig, and pair_cov by the 
+        with different draws of the data. This is especially helpful when combined
+        with the noise marginalized optimal statistic or per-frequency optimal statistic 
+        analyses. This function will normalize the rho, sig, and pair_cov by the 
         OS (A^2) value, making self.rho, self.sig, and self.pair_cov represent only 
         the correlations. 
         NOTE: If using pair covariance you still need to supply this function

@@ -89,6 +89,7 @@ def signal_to_noise(pta, lm_params = None):
     spherical harmonic model. This function computes equation 17 from the paper
     Pol, Taylor, Romano 2022. 
     NOTE: This function only works with the square-root spherical harmonic model.
+    NOTE: This function returns the square of the signal-to-noise ratio!
 
     Args:
         pta (anis_pta.anis_pta): The anis_pta object with the signal model
@@ -98,9 +99,9 @@ def signal_to_noise(pta, lm_params = None):
 
     Returns:
         tuple: A tuple containing:
-            total_sn (float): The total signal-to-noise ratio
-            iso_sn (float): The isotropic signal-to-noise ratio
-            anis_sn (float): The anisotropic signal-to-noise ratio
+            total_sn (float): The squared total signal-to-noise ratio
+            iso_sn (float): The squared isotropic signal-to-noise ratio
+            anis_sn (float): The squared anisotropic signal-to-noise ratio
     """
 
     if lm_params is None:
