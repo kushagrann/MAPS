@@ -4,9 +4,9 @@ A Python package by Nihan Pol, MAPS aims to simplify the task of searching for a
 
 ## Installation
 
-As of now, the only way to install MAPS is to clone the directory yourself, then when inside the maps directory use the command:
+As of now, the easiest way to install MAPS is to use pip+git:
 
-```pip install .```
+```pip install git+https://github.com/NihanPol/MAPS@main```
 
 This has had the fewest problems and is likely the easiest way to get MAPS working.
 
