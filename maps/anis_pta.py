@@ -336,20 +336,18 @@ class anis_pta():
             np.ndarray: An array of shape (npairs, npix) containing the antenna
                 pattern response matrix.
         """
-        F_mat = np.zeros((self.npairs, self.npix))
+        npix = hp.nside2npix(self.nside)
+        gwtheta,gwphi = hp.pix2ang(self.nside,np.arange(npix))
 
-        for ii,(a,b) in enumerate(self.pair_idx):
-            for kk in range(self.npix):
+        FpFc = ac.signalResponse_fast(self.psrs_theta, self.psrs_phi, gwtheta, gwphi)
+        Fp,Fc = FpFc[:,0::2], FpFc[:,1::2] 
 
-                pp_1, pc_1 = self._fplus_fcross(self.psrs_theta[a], self.psrs_phi[a],
-                                            self.gw_theta[kk], self.gw_phi[kk])
-                
-                pp_2, pc_2 = self._fplus_fcross(self.psrs_theta[b], self.psrs_phi[b],
-                                            self.gw_theta[kk], self.gw_phi[kk])
+        R_abk = np.zeros( (self.npairs,self.npix) )
+        # Now lets do some multiplication
+        for i,(a,b) in enumerate(self.pair_idx):
+            R_abk[i] = Fp[a]*Fp[b] + Fc[a]*Fc[b]
 
-                F_mat[ii][kk] =  (pp_1 * pp_2 + pc_1 * pc_2)  * 1.5 / (self.npix)
-
-        return F_mat
+        return R_abk
     
 
     def get_pure_HD(self):
