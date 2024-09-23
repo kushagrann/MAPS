@@ -665,7 +665,7 @@ class anis_pta():
         return lmf_params
     
 
-    def max_lkl_sqrt_power(self, params = None):
+    def max_lkl_sqrt_power(self, params = None, pair_cov = False):
         """A method to calculate the maximum likelihood b_lms for the sqrt power basis.
 
         This method uses lmfit to minimize the chi-square to find the maximum likelihood
@@ -674,17 +674,36 @@ class anis_pta():
 
         Args:
             params (lmfit.Parameters, optional): The set of parameter to minimize. Defaults to an empty array.
+            pair_cov (bool): A flag to use the pair covariance matrix if it was
+                    supplied at initialization or with set_data(). Defaults to False
 
         Returns:
             lmfit.Minimizer.minimize: The lmfit minimizer object for post-processing.
         """
-
         if params is None:
             params = self.setup_lmfit_parameters()
         else:
             params = params
 
-        def residuals(params, obs_orf, obs_orf_err):
+        def residuals(params, rho, sig, cov=None):
+            """A residuals function for the lmfit minimizer.
+
+            This function calculates the residuals for the pairwise correlations given 
+            a set of model square root spherical parameters.
+
+            Args:
+                params (lmfit.Parameters): The set of lmfit parameters
+                rho (np.ndarray): The set of observed orfs (the data)
+                sig (np.ndarray): The uncertainties in rho.
+                cov (np.ndarray, optional): The inverse pair covariance matrix. Defaults to None.
+
+            Raises:
+                ValueError: If pair_cov is True, but no pair covariance matrix was supplied.
+    
+            Returns:
+                np.ndarray or float: The array of noise-weighted residuals given the parameters
+                        if cov is None, otherwise the chi-square value.
+            """
 
             #Get the input parameters as a dictionary
             param_dict = params.valuesdict()
@@ -699,18 +718,30 @@ class anis_pta():
                 clm_pred = utils.convert_blm_params_to_clm(self, param_arr[1:])
 
             if self.include_pta_monopole:
-                sim_orf = (10 ** param_arr[1]) * np.sum(clm_pred[:, np.newaxis] * self.Gamma_lm, axis = 0) + (10 ** param_arr[0]) * 1
+                model = (10 ** param_arr[1]) * np.sum(clm_pred[:, np.newaxis] * self.Gamma_lm, axis = 0) + (10 ** param_arr[0]) * 1
             else:
-                sim_orf = (10 ** param_arr[0]) * np.sum(clm_pred[:, np.newaxis] * self.Gamma_lm, axis = 0)
+                model = (10 ** param_arr[0]) * np.sum(clm_pred[:, np.newaxis] * self.Gamma_lm, axis = 0)
 
-            return (sim_orf - obs_orf) / obs_orf_err
-
-        #Get initial fit from function above. Includes initial guess
-        #init_guess = self.setup_lmfit_parameters()
+            r = (rho - model)
+            if cov is None:
+                return r/sig 
+            else:
+                val = r.T @ cov @ r
+                return val.item()
+            
 
         #Setup lmfit minimizer and get solution
-        mini = lmfit.Minimizer(residuals, params, fcn_args=(self.rho, self.sig))
-        opt_params = mini.minimize()
+        if pair_cov is False:
+            # Non-pair covariance
+            mini = lmfit.Minimizer(residuals, params, fcn_args=(self.rho, self.sig))
+            opt_params = mini.minimize()
+
+        elif self.pair_cov is not None:
+            mini = lmfit.Minimizer(residuals, params, fcn_args=(self.rho, None, self.N_mat_inv))
+            opt_params = mini.minimize('Nelder-Mead')
+
+        else:
+            raise ValueError("pair_cov is True, but no pair covariance matrix was supplied")
 
         #Return the full output object for user.
         #Post-processing help in utils and lmfit documentation
