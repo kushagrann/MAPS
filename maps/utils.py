@@ -82,7 +82,7 @@ def convert_blm_params_to_clm(pta_anis, blm_params):
     return clms_rvylm
 
 
-def signal_to_noise(pta, lm_params = None):
+def signal_to_noise(pta, lm_params = None, use_pair_cov = False):
     """A function to compute the SNR of the square-root spherical harmonic anisotropy.
 
     This function computes the signal-to-noise ratio of anisotropy in the square-root 
@@ -96,6 +96,8 @@ def signal_to_noise(pta, lm_params = None):
         lm_params (lmfit.Minimizer.minimize, optional): The lmfit parameters of the
             minimized solution. Setting to None will compute this inside the function.
             Defaults to None.
+        use_pair_cov (bool): Whether to include the pair covariance matrix. 
+            Defaults to False.
 
     Returns:
         tuple: A tuple containing:
@@ -134,9 +136,16 @@ def signal_to_noise(pta, lm_params = None):
         ml_orf = pta.orf_from_clm(np.append((lp[0]), opt_clm))
         hd_orf = pta_mono.orf_from_clm(np.append((lp_mono[0]), opt_clm_mono))
 
-    snm = np.sum(-1 * (pta.rho - ml_orf) ** 2 / (2 * (pta.sig) ** 2))
-    nm = np.sum(-1 * (pta.rho) ** 2 / (2 * (pta.sig) ** 2))
-    hdnm = np.sum(-1 * (pta.rho - hd_orf) ** 2 / (2 * (pta.sig) ** 2))
+    if use_pair_cov:
+        if pta.pair_cov is None:
+            raise ValueError("Pair covariance matrix is not set.")
+        snm = (-1/2)*((pta.rho - ml_orf) @ pta.N_mat_inv @ (pta.rho - ml_orf))
+        hdnm = (-1/2)*((pta.rho - hd_orf).T @ pta.N_mat_inv @ (pta.rho - hd_orf))
+        nm = (-1/2)*((pta.rho).T @ pta.N_mat_inv @ (pta.rho))
+    else:
+        snm = np.sum(-1 * (pta.rho - ml_orf) ** 2 / (2 * (pta.sig) ** 2))
+        nm = np.sum(-1 * (pta.rho) ** 2 / (2 * (pta.sig) ** 2))
+        hdnm = np.sum(-1 * (pta.rho - hd_orf) ** 2 / (2 * (pta.sig) ** 2))
 
     total_sn = 2 * (snm - nm)
     iso_sn = 2 * (hdnm - nm)
