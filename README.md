@@ -6,7 +6,12 @@ A Python package by Nihan Pol, MAPS aims to simplify the task of searching for a
 
 As of now, the easiest way to install MAPS is to use pip+git:
 
-```pip install git+https://github.com/NihanPol/MAPS@main```
+For this method you MUST install ENTERPRISE through conda first. We recommend installing it with enterprise_extensions for its additional utility and will install ENTERPRISE along with it:
+
+```bash
+conda install -c conda-forge enterprise_extensions
+pip install git+https://github.com/NihanPol/MAPS
+```
 
 This has had the fewest problems and is likely the easiest way to get MAPS working.
 
