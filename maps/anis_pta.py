@@ -493,7 +493,7 @@ class anis_pta():
 
         if use_svd_reg:
             abs_cutoff = cutoff * np.max(sv)
-            fac1 = sl.pinvh( FNF, cond = abs_cutoff )
+            fac1 = sl.pinvh( FNF, atol=abs_cutoff )
             fac2 = self.F_mat.T @ self.N_mat_inv @ self.rho
             pow_err = np.sqrt(np.diag(fac1))
             power = fac1 @ fac2
