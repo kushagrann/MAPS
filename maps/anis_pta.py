@@ -465,18 +465,26 @@ class anis_pta():
 
         This method calculates the maximum likelihood pixel values while allowing
         for covariance between pixels. This method is similar to that of the
-        get_radiometer_map method, but allows for covariance between pixels, and 
+        get_radiometer_map() method, but allows for covariance between pixels, and 
         use regression to find solutions through forward modeling.
 
         Args:
-            cutoff (int, optional): _description_. Defaults to 0.
-            return_fac1 (bool, optional): _description_. Defaults to False.
-            use_svd_reg (bool, optional): _description_. Defaults to False.
-            reg_type (str, optional): _description_. Defaults to 'l2'.
-            alpha (int, optional): _description_. Defaults to 0.
+            cutoff (float, optional): The minimum relative allowed singular value.
+                    Only used if use_svd_reg is True. Defaults to 0.
+            return_fac1 (bool): Whether to return the inverse of the Fisher matrix.
+                    Defaults to False.
+            use_svd_reg (bool): A flag to use linear solving with SVD regularization.
+                    Defaults to False.
+            reg_type (str): The type of regularization to use with astroML.linear_model.LinearRegression().
+                    Defaults to 'l2'.
+            alpha (int, optional): Optional jitter to add to the diagonal of the Fisher matrix
+                    when using LinearRegression. Defaults to 0.
 
         Returns:
-            tuple: _description_
+            tuple: A tuple of 4 np.ndarrays containing the pixel values, the pixel value errors,
+                the condition number of the Fisher matrix, and the singular values of the Fisher matrix.
+                If return_fac1 is True, it will also return the inverse of the Fisher matrix
+                as an additional element of the tuple.
         """
         FNF = self.F_mat.T @ self.N_mat_inv @ self.F_mat 
         sv = sl.svd(FNF, compute_uv = False,)
