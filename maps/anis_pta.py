@@ -741,7 +741,7 @@ class anis_pta():
         return lmf_params
     
 
-    def max_lkl_sqrt_power(self, params = None, pair_cov = False, method = 'leastsq'):
+    def max_lkl_sqrt_power(self, params = None, pair_cov = False, method = None):
         """A method to calculate the maximum likelihood b_lms for the sqrt power basis.
 
         This method uses lmfit to minimize the chi-square to find the maximum likelihood
@@ -753,8 +753,9 @@ class anis_pta():
                     Defaults to an empty array.
             pair_cov (bool): A flag to use the pair covariance matrix if it was
                     supplied at initialization or with set_data(). Defaults to False
-            method (str): The method to use for minimization. This must be a valid
-                    method for lmfit.Minimizer.minimize(). Defaults to 'leastsq'.
+            method (str, optional): The method to use for minimization. This must be a valid
+                    method for lmfit.Minimizer.minimize(). 
+                    Defaults to 'nelder' if pair_cov is True, and 'leastsq' if False.
 
         Raises:
             ValueError: If pair_cov is True and no pair covariance matrix is supplied.
@@ -762,16 +763,20 @@ class anis_pta():
         Returns:
             lmfit.Minimizer.minimize: The lmfit minimizer object for post-processing.
         """
+        if method is None:
+            method = 'nelder' if pair_cov else 'leastsq'
+
         params = self.setup_lmfit_parameters() if params is None else params
 
-
         # lmfit needs two functions, one to calculate the residuals and one to calculate the chi-square
-        def residuals(params, rho):
+        def residuals(params, rho, scale = 1):
             """A function to calculate the residuals for the lmfit minimizer.
 
             Args:
                 params (lmfit.Parameters): The set of parameters to minimize.
                 rho (np.ndarray): The set of correlations to compare the model to.
+                scale (np.ndarray, optional): A scaling factor for the residuals. 
+                        Default is no scaling.
             """
             param_dict = params.valuesdict() # Get the input parameters (dict)            
             param_arr = np.array(list(param_dict.values())) # Convert to numpy array
@@ -786,9 +791,10 @@ class anis_pta():
                 clm_pred = utils.convert_blm_params_to_clm(self, param_arr[1:])
 
             model = A_mono + A2*np.sum(clm_pred[:, np.newaxis] * self.Gamma_lm, axis = 0)
-
-            return model - rho
+            
+            return (model - rho) / scale
         
+
         def chi_square(residuals):
             """A function to calculate the chi-square from the residuals.
 
@@ -809,12 +815,18 @@ class anis_pta():
             else: 
                 cinv = self.pair_ind_N_inv
             
-            return residuals.T @ cinv @ residuals
+            return residuals @ cinv @ residuals.T
+        
+        if method.lower() in ['leastsq', 'least_squares']: 
+            # The least squares method does not support the reduce_fcn argument.
+            if pair_cov :
+                raise ValueError("The least squares method is incompatible with pair covariance!")
             
+            mini = lmfit.Minimizer(residuals, params, fcn_args=[self.rho, self.sig])
+        else:
+            mini = lmfit.Minimizer(residuals, params, fcn_args=[self.rho], reduce_fcn=chi_square)
 
-        mini = lmfit.Minimizer(residuals, params, fcn_args=[self.rho], reduce_fcn=chi_square)
         opt_params = mini.minimize(method)
-
         return opt_params
 
 
