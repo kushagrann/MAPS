@@ -741,7 +741,7 @@ class anis_pta():
         return lmf_params
     
 
-    def max_lkl_sqrt_power(self, params = None, pair_cov = False, method = None):
+    def max_lkl_sqrt_power(self, params = None, pair_cov = False, method = 'leastsq'):
         """A method to calculate the maximum likelihood b_lms for the sqrt power basis.
 
         This method uses lmfit to minimize the chi-square to find the maximum likelihood
@@ -754,8 +754,7 @@ class anis_pta():
             pair_cov (bool): A flag to use the pair covariance matrix if it was
                     supplied at initialization or with set_data(). Defaults to False
             method (str, optional): The method to use for minimization. This must be a valid
-                    method for lmfit.Minimizer.minimize(). 
-                    Defaults to 'nelder' if pair_cov is True, and 'leastsq' if False.
+                    method for lmfit.Minimizer.minimize(). Defaults to 'leastsq'.
 
         Raises:
             ValueError: If pair_cov is True and no pair covariance matrix is supplied.
@@ -763,20 +762,41 @@ class anis_pta():
         Returns:
             lmfit.Minimizer.minimize: The lmfit minimizer object for post-processing.
         """
-        if method is None:
-            method = 'nelder' if pair_cov else 'leastsq'
+        method = method if method is not None else 'leastsq'
 
         params = self.setup_lmfit_parameters() if params is None else params
 
-        # lmfit needs two functions, one to calculate the residuals and one to calculate the chi-square
-        def residuals(params, rho, scale = 1):
+
+        # Define L such that L @ L.T = C^-1
+        if pair_cov: 
+            # Use the Cholesky decomposition to get L
+            L = sl.cholesky(self.pair_cov_N_inv, lower = True)
+        else: 
+            # Without pair covariance, L = L.T = diag(1/sig)
+            L = np.diag(1 / self.sig)
+
+
+        def residuals(params):
             """A function to calculate the residuals for the lmfit minimizer.
+
+            lmfit prefers residuals rather than scalars (more options and uncertainties 
+            are returned more often). If we use pair covariance, our residuals are more 
+            difficult than without. To combat this, we can define a whitening transformation 
+            to remove covariances between residuals: 
+            https://en.wikipedia.org/wiki/Whitening_transformation
+        
+            chi_square = -(r.T @ C^-1 @ r)
+            = -(r.T @ L @ L.T @ r)
+            = -(L.T @ r).T @ (L.T @ r)
+            Therefore, our whitening transformation matrix is L.T
+        
+            This behavior is identical to what is done in scipy's curve_fit.
 
             Args:
                 params (lmfit.Parameters): The set of parameters to minimize.
-                rho (np.ndarray): The set of correlations to compare the model to.
-                scale (np.ndarray, optional): A scaling factor for the residuals. 
-                        Default is no scaling.
+            
+            Returns:
+                np.ndarray: The noise-weighted (and whitened) residuals.
             """
             param_dict = params.valuesdict() # Get the input parameters (dict)            
             param_arr = np.array(list(param_dict.values())) # Convert to numpy array
@@ -792,40 +812,11 @@ class anis_pta():
 
             model = A_mono + A2*np.sum(clm_pred[:, np.newaxis] * self.Gamma_lm, axis = 0)
             
-            return (model - rho) / scale
+            r = model - self.rho
+
+            return L.T @ r
         
-
-        def chi_square(residuals):
-            """A function to calculate the chi-square from the residuals.
-
-            Args:
-                residuals (np.ndarray): The residuals from the model.
-
-            Raises:
-                ValueError: If pair_cov is True, but no pair covariance matrix was supplied.
-                
-            Returns:
-                float: The chi-square value.
-            """
-            if pair_cov and self.pair_cov is None:
-                raise ValueError("No pair covariance matrix supplied! Set it with set_data()")
-            
-            elif pair_cov:
-                cinv = self.pair_cov_N_inv
-            else: 
-                cinv = self.pair_ind_N_inv
-            
-            return residuals @ cinv @ residuals.T
-        
-        if method.lower() in ['leastsq', 'least_squares']: 
-            # The least squares method does not support the reduce_fcn argument.
-            if pair_cov :
-                raise ValueError("The least squares method is incompatible with pair covariance!")
-            
-            mini = lmfit.Minimizer(residuals, params, fcn_args=[self.rho, self.sig])
-        else:
-            mini = lmfit.Minimizer(residuals, params, fcn_args=[self.rho], reduce_fcn=chi_square)
-
+        mini = lmfit.Minimizer(residuals, params)
         opt_params = mini.minimize(method)
         return opt_params
 
