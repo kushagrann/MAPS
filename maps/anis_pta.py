@@ -762,8 +762,6 @@ class anis_pta():
         Returns:
             lmfit.Minimizer.minimize: The lmfit minimizer object for post-processing.
         """
-        method = method if method is not None else 'leastsq'
-
         params = self.setup_lmfit_parameters() if params is None else params
 
 
@@ -812,7 +810,7 @@ class anis_pta():
 
             model = A_mono + A2*np.sum(clm_pred[:, np.newaxis] * self.Gamma_lm, axis = 0)
             
-            r = model - self.rho
+            r = self.rho - model
 
             return L.T @ r
         
