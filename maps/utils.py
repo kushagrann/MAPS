@@ -88,6 +88,8 @@ def signal_to_noise(pta, lm_params = None, pair_cov = False, method = 'leastsq')
     This function computes the signal-to-noise ratio of anisotropy in the square-root 
     spherical harmonic model. This function computes equation 17 from the paper
     Pol, Taylor, Romano 2022. 
+    NOTE: If using pair covariance, the noise model will ignore this, as the null 
+    hypothesis has uncorrelated noise.
     NOTE: This function only works with the square-root spherical harmonic model.
     NOTE: This function returns the square of the signal-to-noise ratio!
 
@@ -149,15 +151,17 @@ def signal_to_noise(pta, lm_params = None, pair_cov = False, method = 'leastsq')
         if pta.pair_cov is None:
             raise ValueError("Pair covariance matrix is not set.")
         covinv = pta.pair_cov_N_inv
+        noiseinv = pta.pair_ind_N_inv
     else:
         covinv = pta.pair_ind_N_inv
+        noiseinv = pta.pair_ind_N_inv
     
     ani_res = pta.rho - ani_orf
     iso_res = pta.rho - iso_orf
 
     snm = (-1/2)*((ani_res).T @ covinv @ (ani_res)) # Anisotropy chi-square
     hdnm = (-1/2)*((iso_res).T @ covinv @ (iso_res)) # Isotropy chi-square
-    nm = (-1/2)*((pta.rho).T @ covinv @ (pta.rho)) # Null chi-square
+    nm = (-1/2)*((pta.rho).T @ noiseinv @ (pta.rho)) # Null chi-square (Not pair covariant)
 
     total_sn = 2 * (snm - nm)
     iso_sn = 2 * (hdnm - nm)
