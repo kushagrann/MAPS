@@ -43,6 +43,8 @@ class anis_pta():
         sig (np.ndarray, optional): A list of 1-sigma uncertainties on rho [npair].
         os (float, optional): The optimal statistic's best-fit A^2 value.
         pair_cov (np.ndarray, optional): The pair covariance matrix [npair x npair].
+        pair_ind_N_inv (np.ndarray): The inverse of the pair independent covariance matrix.
+        pair_cov_N_inv (np.ndarray): The inverse of the pair covariance matrix.
         l_max (int): The maximum l value for spherical harmonics.
         nside (int): The nside of the healpix sky pixelization.
         npix (int): The number of pixels in the healpix pixelization.
@@ -382,16 +384,18 @@ class anis_pta():
         return hd_curve
     
 
-    def orf_from_clm(self, params):
+    def orf_from_clm(self, params, include_scale=True):
         """A function to calculate the ORF from the clm values.
 
         This function calculates the ORF from the supplied clm values in params.
-        params[0] indicates the monopole, params[1] indicates C_{1,-1} and so on.
-        From there this function calculates the ORF for each pair given those
-        clm values.
+        If include_scale is True, it will include the isotropic scaling A^2 as params[0].
+        Otherwise, it will assume that the isotropic scaling is 1.
+        The rest of the params array are c_{lm} values from -m to m for each l.
+        From there this function calculates the ORF for each pair given those clm values.
 
         Args:
             params (np.ndarray): An array of clm values.
+            include_scale (bool): A flag to include the isotropic scaling A^2.
 
         Returns:
             np.ndarray: An array of ORF values for each pulsar pair.
@@ -399,10 +403,14 @@ class anis_pta():
         # Using supplied clm values, calculate the corresponding power map
         # and calculate the ORF from that power map (convoluted, I know)
 
-        amp2 = 10 ** params[0]
-        clm = params[1:]
+        if include_scale:
+            amp2 = 10 ** params[0]
+            clm = params[1:]
+        else:
+            amp2 = 1
+            clm = params
 
-        sh_map = ac.mapFromClm(clm, nside = self.nside)
+        sh_map = ac.mapFromClm_fast(clm, nside = self.nside)
 
         orf = amp2 * np.dot(self.F_mat, sh_map)
 
@@ -703,13 +711,13 @@ class anis_pta():
 
         if self.include_pta_monopole:
             # (name, value, vary, min, max, expr, brute_step)
-            x = ['A_mono', np.log10(nr.uniform(1e-2, 3)), True, np.log10(1e-2), np.log10(1e2), None, None]
+            x = ['log10_A_mono', np.log10(nr.uniform(1e-2, 3)), True, np.log10(1e-2), np.log10(1e2), None, None]
             params.append(x)
 
-            x = ['A2', np.log10(nr.uniform(1e-2, 3)), True, np.log10(1e-2), np.log10(1e2), None, None]
+            x = ['log10_A2', np.log10(nr.uniform(1e-2, 3)), True, np.log10(1e-2), np.log10(1e2), None, None]
             params.append(x)
         else:
-            x = ['A2', np.log10(nr.uniform(0, 3)), True, np.log10(1e-2), np.log10(1e2), None, None]
+            x = ['log10_A2', np.log10(nr.uniform(0, 3)), True, np.log10(1e-2), np.log10(1e2), None, None]
             params.append(x)
 
         # Now for non-monopole terms!
@@ -768,10 +776,10 @@ class anis_pta():
         # Define L such that L @ L.T = C^-1
         if pair_cov: 
             # Use the Cholesky decomposition to get L
-            L = sl.cholesky(self.pair_cov_N_inv, lower = True)
+            Lt = sl.cholesky(self.pair_cov_N_inv, lower = True).T
         else: 
             # Without pair covariance, L = L.T = diag(1/sig)
-            L = np.diag(1 / self.sig)
+            Lt = np.diag(1 / self.sig).T
 
 
         def residuals(params):
@@ -800,19 +808,22 @@ class anis_pta():
             param_arr = np.array(list(param_dict.values())) # Convert to numpy array
 
             if self.include_pta_monopole:
-                A_mono = param_arr[0]
-                A2 = param_arr[0]
-                clm_pred = utils.convert_blm_params_to_clm(self, param_arr[2:])
+                A_mono = 10**param_arr[0]
+                A2 = 10**param_arr[1]
+                clm = utils.convert_blm_params_to_clm(self, param_arr[2:])
             else:
                 A_mono = 0
-                A2 = param_arr[0]
-                clm_pred = utils.convert_blm_params_to_clm(self, param_arr[1:])
+                A2 = 10**param_arr[0]
+                clm = utils.convert_blm_params_to_clm(self, param_arr[1:])
 
-            model = A_mono + A2*np.sum(clm_pred[:, np.newaxis] * self.Gamma_lm, axis = 0)
+            orf = np.sum(clm[:,None] * self.Gamma_lm, axis = 0)
+
+            model_orf = A_mono + A2*orf
             
-            r = self.rho - model
+            r = self.rho - model_orf 
 
-            return L.T @ r
+            return Lt @ r
+        
         
         mini = lmfit.Minimizer(residuals, params)
         opt_params = mini.minimize(method)
