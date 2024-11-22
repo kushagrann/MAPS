@@ -43,6 +43,8 @@ class anis_pta():
         sig (np.ndarray, optional): A list of 1-sigma uncertainties on rho [npair].
         os (float, optional): The optimal statistic's best-fit A^2 value.
         pair_cov (np.ndarray, optional): The pair covariance matrix [npair x npair].
+        pair_ind_N_inv (np.ndarray): The inverse of the pair independent covariance matrix.
+        pair_cov_N_inv (np.ndarray): The inverse of the pair covariance matrix.
         l_max (int): The maximum l value for spherical harmonics.
         nside (int): The nside of the healpix sky pixelization.
         npix (int): The number of pixels in the healpix pixelization.
@@ -115,7 +117,10 @@ class anis_pta():
                 self.xi = xi
         else:
             self.xi = self._get_xi()
-        self.rho, self.sig, self.os, self.pair_cov, self.N_mat_inv = None, None, None, None, None
+
+        self.rho, self.sig, self.os, self.pair_cov = None, None, None, None
+        self.pair_ind_N_inv, self.pair_cov_N_inv = None, None
+
         self.set_data(rho, sig, os, pair_cov)
         
         # Check if pair_idx is valid
@@ -170,14 +175,14 @@ class anis_pta():
         return None
     
     
-    def set_data(self, rho=None, sig=None, os=None, pair_cov=None):
+    def set_data(self, rho=None, sig=None, os=None, covariance=None):
         """Set the data for the anis_pta object.
 
         This function allows you to set the data for the anis_pta object 
         after construction. This allows users to use the same anis_pta object
         with different draws of the data. This is especially helpful when combined
         with the noise marginalized optimal statistic or per-frequency optimal statistic 
-        analyses. This function will normalize the rho, sig, and pair_cov by the 
+        analyses. This function will normalize the rho, sig, and covariance by the 
         OS (A^2) value, making self.rho, self.sig, and self.pair_cov represent only 
         the correlations. 
         NOTE: If using pair covariance you still need to supply this function
@@ -187,7 +192,7 @@ class anis_pta():
             rho (list, optional): A list of pulsar pair correlated amplitudes (<rho> = <A^2*ORF>).
             sig (list, optional): A list of 1-sigma uncertaintties on rho.
             os (float, optional): The OS' fit A^2 value.
-            pair_cov (np.ndarray, optional): The pair covariance matrix [npair x npair].
+            covariance (np.ndarray, optional): The pair covariance matrix [npair x npair].
         """
         # Read in OS and normalize cross-correlations by OS. 
         # (i.e. get <rho/OS> = <ORF>)
@@ -196,31 +201,38 @@ class anis_pta():
             self.os = os
             self.rho = np.array(rho) / self.os
             self.sig = np.array(sig) / self.os
+
+            # Set the inverse of the pair independent covariance matrix
+            self.pair_ind_N_inv = self._get_N_inv(pair_cov = False)
+
         else:
             self.rho = None
             self.sig = None
             self.os = None
 
-        if pair_cov is not None:
-            self.pair_cov = pair_cov / self.os**2
+        if covariance is not None:
+            self.pair_cov = covariance / self.os**2
+
+            # Get the inverse of the pair covariance matrix
+            self.pair_cov_N_inv = self._get_N_inv(pair_cov = True)
+
         else:
             self.pair_cov = None
-        
-        # Set Covariance matrix inverse
-        if self.sig is not None:
-            self.N_mat_inv = self._get_N_mat_inv()
+            self.pair_cov_N_inv = None
 
 
-    def _get_N_mat_inv(self, ret_cond = False):
+    def _get_N_inv(self, pair_cov=False, ret_cond = False):
         """A method to calculate the inverse of the pair covariance matrix N.
 
         This function will calculate the inverse of the pair covariance matrix N.
-        If the pair covariance matrix is not supplied, it will use a diagonal matrix
-        consisting of the squared sig values. This function will use the woodbury
-        identity to calculate the inverse of N if the pair covariance matrix is supplied,
-        increasing the stability of the inverse.
+        If pair_cov is False, it will use a diagonal matrix consisting of the 
+        squared sig values. 
+        If pair_cov is True, it will use the woodbury identity to calculate the
+        inverse of N with the pair covariance matrix to increase the stability of 
+        the inverse.
 
         Args:
+            pair_cov (bool): A flag to use the pair covariance matrix. Defaults to False.
             ret_cond (bool, optional): A flag to return the condition number of the 
                 covariance matrix. Only useful when using pair covariance.
 
@@ -229,19 +241,23 @@ class anis_pta():
                 is True, it will return a tuple containing the inverse and the condition
                 number of the covariance matrix.
         """
-        if self.pair_cov is not None:
+        if pair_cov and self.pair_cov is None:
+            raise ValueError("No pair covariance matrix supplied! Set it with set_data()")
+        elif pair_cov:
             A = np.diag(self.sig ** 2)
             K = self.pair_cov - A
             In = np.eye(A.shape[0])
-            if ret_cond:
-                N_mat_inv, cond = utils.woodbury_inverse(A, In, In, K, ret_cond = True)
-                return N_mat_inv, cond
-            
-            N_mat_inv = utils.woodbury_inverse(A, In, In, K)
-        else:
-            N_mat_inv = np.diag( 1 / self.sig ** 2 )
 
-        return N_mat_inv
+            N_inv, cond = utils.woodbury_inverse(A, In, In, K, ret_cond = True)
+
+            if ret_cond:
+                return N_inv, cond
+            else:
+                return N_inv
+        else:
+            N_inv = np.diag( 1 / self.sig ** 2 )
+
+            return N_inv
         
 
     def _get_radec(self):
@@ -368,16 +384,18 @@ class anis_pta():
         return hd_curve
     
 
-    def orf_from_clm(self, params):
+    def orf_from_clm(self, params, include_scale=True):
         """A function to calculate the ORF from the clm values.
 
         This function calculates the ORF from the supplied clm values in params.
-        params[0] indicates the monopole, params[1] indicates C_{1,-1} and so on.
-        From there this function calculates the ORF for each pair given those
-        clm values.
+        If include_scale is True, it will include the isotropic scaling A^2 as params[0].
+        Otherwise, it will assume that the isotropic scaling is 1.
+        The rest of the params array are c_{lm} values from -m to m for each l.
+        From there this function calculates the ORF for each pair given those clm values.
 
         Args:
             params (np.ndarray): An array of clm values.
+            include_scale (bool): A flag to include the isotropic scaling A^2.
 
         Returns:
             np.ndarray: An array of ORF values for each pulsar pair.
@@ -385,10 +403,14 @@ class anis_pta():
         # Using supplied clm values, calculate the corresponding power map
         # and calculate the ORF from that power map (convoluted, I know)
 
-        amp2 = 10 ** params[0]
-        clm = params[1:]
+        if include_scale:
+            amp2 = 10 ** params[0]
+            clm = params[1:]
+        else:
+            amp2 = 1
+            clm = params
 
-        sh_map = ac.mapFromClm(clm, nside = self.nside)
+        sh_map = ac.mapFromClm_fast(clm, nside = self.nside)
 
         orf = amp2 * np.dot(self.F_mat, sh_map)
 
@@ -436,57 +458,103 @@ class anis_pta():
         return clm
     
 
-    def fisher_matrix_sph(self):
+    def fisher_matrix_sph(self, pair_cov=False):
         """A method to calculate the Fisher matrix for the spherical harmonic basis.
+
+        Args:
+            pair_cov (bool): A flag to use the pair covariance matrix if it was supplied
+
+        Raises:
+            ValueError: If pair_cov is True and no pair covariance matrix is supplied.
 
         Returns:
             np.array: The Fisher matrix for the spherical harmonic basis. [n_clm x n_clm]
         """
         F_mat_clm = self.Gamma_lm.T
 
-        fisher_mat = F_mat_clm.T @ self.N_mat_inv @ F_mat_clm 
+        if pair_cov and self.pair_cov is None:
+            raise ValueError("No pair covariance matrix supplied! Set it with set_data()")
+        elif pair_cov:
+            fisher_mat = F_mat_clm.T @ self.pair_cov_N_inv @ F_mat_clm
+        else:
+            fisher_mat = F_mat_clm.T @ self.pair_ind_N_inv @ F_mat_clm 
 
         return fisher_mat
 
 
-    def fisher_matrix_pixel(self):
+    def fisher_matrix_pixel(self, pair_cov=False):
         """A method to calculate the Fisher matrix for the pixel basis.
+
+        Args:
+            pair_cov (bool): A flag to use the pair covariance matrix if it was supplied
+
+        Raises:
+            ValueError: If pair_cov is True and no pair covariance matrix is supplied.
 
         Returns:
             np.ndarray: The Fisher matrix for the pixel basis. [npix x npix]
         """
-        fisher_mat = self.F_mat.T @ self.N_mat_inv @ self.F_mat
+        if pair_cov and self.pair_cov is None:
+            raise ValueError("No pair covariance matrix supplied! Set it with set_data()")
+        elif pair_cov:
+            fisher_mat = self.F_mat.T @ self.pair_cov_N_inv @ self.F_mat
+        else:
+            fisher_mat = self.F_mat.T @ self.pair_ind_N_inv @ self.F_mat
         return fisher_mat
     
 
     def max_lkl_pixel(self, cutoff = 0, return_fac1 = False, use_svd_reg = False, 
-                      reg_type = 'l2', alpha = 0):
+                      reg_type = 'l2', alpha = 0, pair_cov = False):
         """A method to calculate the maximum likelihood pixel values.
 
         This method calculates the maximum likelihood pixel values while allowing
         for covariance between pixels. This method is similar to that of the
-        get_radiometer_map method, but allows for covariance between pixels, and 
-        use regression to find solutions through forward modeling.
+        get_radiometer_map() method, but allows for covariance between pixels, and 
+        can use regression to find solutions through forward modeling.
 
         Args:
-            cutoff (int, optional): _description_. Defaults to 0.
-            return_fac1 (bool, optional): _description_. Defaults to False.
-            use_svd_reg (bool, optional): _description_. Defaults to False.
-            reg_type (str, optional): _description_. Defaults to 'l2'.
-            alpha (int, optional): _description_. Defaults to 0.
+            cutoff (float, optional): The minimum relative allowed singular value.
+                    Only used if use_svd_reg is True. Defaults to 0.
+            return_fac1 (bool): Whether to return the inverse of the Fisher matrix.
+                    Defaults to False.
+            use_svd_reg (bool): A flag to use linear solving with SVD regularization.
+                    Defaults to False.
+            reg_type (str): The type of regularization to use with astroML.linear_model.LinearRegression().
+                    Defaults to 'l2'.
+            alpha (int, optional): Optional jitter to add to the diagonal of the Fisher matrix
+                    when using LinearRegression. Defaults to 0.
+            pair_cov (bool): A flag to use the pair covariance matrix if it was supplied
+                    at initialization or with set_data(). Defaults to False.
+        
+        Raises:
+            ValueError: If pair_cov is True and no pair covariance matrix is supplied.
 
         Returns:
-            tuple: _description_
+            tuple: A tuple of 4 np.ndarrays containing the pixel values, the pixel value errors,
+                the condition number of the Fisher matrix, and the singular values of the Fisher matrix.
+                If return_fac1 is True, it will also return the inverse of the Fisher matrix
+                as an additional element of the tuple.
         """
-        FNF = self.F_mat.T @ self.N_mat_inv @ self.F_mat 
+        if pair_cov and self.pair_cov is None:
+            raise ValueError("No pair covariance matrix supplied! Set it with set_data()")
+        elif pair_cov:
+            FNF = self.F_mat.T @ self.pair_cov_N_inv @ self.F_mat
+        else:
+            FNF = self.F_mat.T @ self.pair_ind_N_inv @ self.F_mat
+        
         sv = sl.svd(FNF, compute_uv = False,)
 
         cn = np.max(sv) / np.min(sv)
 
         if use_svd_reg:
             abs_cutoff = cutoff * np.max(sv)
-            fac1 = sl.pinvh( FNF, cond = abs_cutoff )
-            fac2 = self.F_mat.T @ self.N_mat_inv @ self.rho
+            fac1 = sl.pinvh( FNF, atol=abs_cutoff )
+            
+            if pair_cov:
+                fac2 = self.F_mat.T @ self.pair_cov_N_inv @ self.rho
+            else:
+                fac2 = self.F_mat.T @ self.pair_ind_N_inv @ self.rho
+
             pow_err = np.sqrt(np.diag(fac1))
             power = fac1 @ fac2
 
@@ -508,7 +576,7 @@ class anis_pta():
         return power, pow_err, cn, sv
     
 
-    def get_radiometer_map(self):
+    def get_radiometer_map(self, pair_cov = True):
         """A method to get the radiometer pixel map.
 
         This method calculates the radiometer pixel map for all pixels. This method
@@ -518,12 +586,23 @@ class anis_pta():
         source to the observer). Use utils.invert_omega() to get the source direction
         instead!
 
+        Args:
+            pair_cov (bool): A flag to use the pair covariance matrix if it was supplied.
+
+        Raises:
+            ValueError: If pair_cov is True and no pair covariance matrix is supplied.
+
         Returns:
             tuple: A tuple of 2 np.ndarrays containing the pixel power map and the
                 pixel power map error.
         """
         # Calculate dirty map
-        dirty_map = self.F_mat.T @ self.N_mat_inv @ self.rho
+        if pair_cov and self.pair_cov is None:
+            raise ValueError("No pair covariance matrix supplied! Set it with set_data()")
+        elif pair_cov:
+            dirty_map = self.F_mat.T @ self.pair_cov_N_inv @ self.rho
+        else:
+            dirty_map = self.F_mat.T @ self.pair_ind_N_inv @ self.rho
     
         # Calculate radiometer map, (i.e. no covariance between pixels)
         # If you take only the diagonal elements of the fisher matrix, 
@@ -548,7 +627,8 @@ class anis_pta():
         return radio_map_n, radio_map_err
 
 
-    def max_lkl_clm(self, cutoff = None, use_svd_reg = False, reg_type = 'l2', alpha = 0):
+    def max_lkl_clm(self, cutoff = None, use_svd_reg = False, reg_type = 'l2', alpha = 0,
+                    pair_cov = False):
         """Compute the max likelihood clm values.
 
         A method to compute the maximum likelihood clm values. This method uses
@@ -568,6 +648,7 @@ class anis_pta():
                 Defaults to 'l2'.
             alpha (float, optional): Optional jitter to add to the diagonal of the Fisher matrix
                 when using LinearRegression. Defaults to 0.
+            pair_cov (bool): A flag to use the pair covariance matrix if it was supplied.
 
         Returns:
             tuple: A tuple of 4 np.ndarrays containing the clm values, the clm value errors,
@@ -575,7 +656,7 @@ class anis_pta():
         """
         F_mat_clm = self.Gamma_lm.T
 
-        FNF_clm = self.fisher_matrix_sph()
+        FNF_clm = self.fisher_matrix_sph(pair_cov)
 
         sv = sl.svd(FNF_clm, compute_uv=False)
         cn = np.max(sv) / np.min(sv)
@@ -587,7 +668,10 @@ class anis_pta():
             else:
                 fac1 = np.linalg.pinv(FNF_clm)
 
-            fac2 = F_mat_clm.T @ self.N_mat_inv @ self.rho
+            if pair_cov:
+                fac2 = F_mat_clm.T @ self.pair_cov_N_inv @ self.rho
+            else:
+                fac2 = F_mat_clm.T @ self.pair_ind_N_inv @ self.rho
 
             clms = fac1 @ fac2
             clm_err = np.sqrt(np.diag(fac1))
@@ -599,7 +683,7 @@ class anis_pta():
 
             clf = LinearRegression(regularization = reg_type, fit_intercept = False, kwds = dict(alpha = alpha))
 
-            if self.pair_cov is not None:
+            if pair_cov:
                 clf.fit(F_mat_clm, self.rho, self.pair_cov)
             else:
                 clf.fit(F_mat_clm, self.rho, self.sig)
@@ -627,13 +711,13 @@ class anis_pta():
 
         if self.include_pta_monopole:
             # (name, value, vary, min, max, expr, brute_step)
-            x = ['A_mono', np.log10(nr.uniform(1e-2, 3)), True, np.log10(1e-2), np.log10(1e2), None, None]
+            x = ['log10_A_mono', np.log10(nr.uniform(1e-2, 3)), True, np.log10(1e-2), np.log10(1e2), None, None]
             params.append(x)
 
-            x = ['A2', np.log10(nr.uniform(1e-2, 3)), True, np.log10(1e-2), np.log10(1e2), None, None]
+            x = ['log10_A2', np.log10(nr.uniform(1e-2, 3)), True, np.log10(1e-2), np.log10(1e2), None, None]
             params.append(x)
         else:
-            x = ['A2', np.log10(nr.uniform(0, 3)), True, np.log10(1e-2), np.log10(1e2), None, None]
+            x = ['log10_A2', np.log10(nr.uniform(0, 3)), True, np.log10(1e-2), np.log10(1e2), None, None]
             params.append(x)
 
         # Now for non-monopole terms!
@@ -665,7 +749,7 @@ class anis_pta():
         return lmf_params
     
 
-    def max_lkl_sqrt_power(self, params = None, pair_cov = False):
+    def max_lkl_sqrt_power(self, params = None, pair_cov = False, method = 'leastsq'):
         """A method to calculate the maximum likelihood b_lms for the sqrt power basis.
 
         This method uses lmfit to minimize the chi-square to find the maximum likelihood
@@ -673,78 +757,76 @@ class anis_pta():
         and lmfit documentation.
 
         Args:
-            params (lmfit.Parameters, optional): The set of parameter to minimize. Defaults to an empty array.
+            params (lmfit.Parameters, optional): The set of parameter to minimize. 
+                    Defaults to an empty array.
             pair_cov (bool): A flag to use the pair covariance matrix if it was
                     supplied at initialization or with set_data(). Defaults to False
+            method (str, optional): The method to use for minimization. This must be a valid
+                    method for lmfit.Minimizer.minimize(). Defaults to 'leastsq'.
 
+        Raises:
+            ValueError: If pair_cov is True and no pair covariance matrix is supplied.
+                    
         Returns:
             lmfit.Minimizer.minimize: The lmfit minimizer object for post-processing.
         """
-        if params is None:
-            params = self.setup_lmfit_parameters()
-        else:
-            params = params
+        params = self.setup_lmfit_parameters() if params is None else params
 
-        def residuals(params, rho, sig, cov=None):
-            """A residuals function for the lmfit minimizer.
 
-            This function calculates the residuals for the pairwise correlations given 
-            a set of model square root spherical parameters.
+        # Define L such that L @ L.T = C^-1
+        if pair_cov: 
+            # Use the Cholesky decomposition to get L
+            Lt = sl.cholesky(self.pair_cov_N_inv, lower = True).T
+        else: 
+            # Without pair covariance, L = L.T = diag(1/sig)
+            Lt = np.diag(1 / self.sig).T
+
+
+        def residuals(params):
+            """A function to calculate the residuals for the lmfit minimizer.
+
+            lmfit prefers residuals rather than scalars (more options and uncertainties 
+            are returned more often). If we use pair covariance, our residuals are more 
+            difficult than without. To combat this, we can define a whitening transformation 
+            to remove covariances between residuals: 
+            https://en.wikipedia.org/wiki/Whitening_transformation
+        
+            chi_square = -(r.T @ C^-1 @ r)
+            = -(r.T @ L @ L.T @ r)
+            = -(L.T @ r).T @ (L.T @ r)
+            Therefore, our whitening transformation matrix is L.T
+        
+            This behavior is identical to what is done in scipy's curve_fit.
 
             Args:
-                params (lmfit.Parameters): The set of lmfit parameters
-                rho (np.ndarray): The set of observed orfs (the data)
-                sig (np.ndarray): The uncertainties in rho.
-                cov (np.ndarray, optional): The inverse pair covariance matrix. Defaults to None.
-
-            Raises:
-                ValueError: If pair_cov is True, but no pair covariance matrix was supplied.
-    
-            Returns:
-                np.ndarray or float: The array of noise-weighted residuals given the parameters
-                        if cov is None, otherwise the chi-square value.
-            """
-
-            #Get the input parameters as a dictionary
-            param_dict = params.valuesdict()
-
-            #Convert the values to a numpy array for using in other pta_anis functions
-            param_arr = np.array(list(param_dict.values()))
-
-            #Do the thing
-            if self.include_pta_monopole:
-                clm_pred = utils.convert_blm_params_to_clm(self, param_arr[2:])
-            else:
-                clm_pred = utils.convert_blm_params_to_clm(self, param_arr[1:])
-
-            if self.include_pta_monopole:
-                model = (10 ** param_arr[1]) * np.sum(clm_pred[:, np.newaxis] * self.Gamma_lm, axis = 0) + (10 ** param_arr[0]) * 1
-            else:
-                model = (10 ** param_arr[0]) * np.sum(clm_pred[:, np.newaxis] * self.Gamma_lm, axis = 0)
-
-            r = (rho - model)
-            if cov is None:
-                return r/sig 
-            else:
-                val = r.T @ cov @ r
-                return val.item()
+                params (lmfit.Parameters): The set of parameters to minimize.
             
+            Returns:
+                np.ndarray: The noise-weighted (and whitened) residuals.
+            """
+            param_dict = params.valuesdict() # Get the input parameters (dict)            
+            param_arr = np.array(list(param_dict.values())) # Convert to numpy array
 
-        #Setup lmfit minimizer and get solution
-        if pair_cov is False:
-            # Non-pair covariance
-            mini = lmfit.Minimizer(residuals, params, fcn_args=(self.rho, self.sig))
-            opt_params = mini.minimize()
+            if self.include_pta_monopole:
+                A_mono = 10**param_arr[0]
+                A2 = 10**param_arr[1]
+                clm = utils.convert_blm_params_to_clm(self, param_arr[2:])
+            else:
+                A_mono = 0
+                A2 = 10**param_arr[0]
+                clm = utils.convert_blm_params_to_clm(self, param_arr[1:])
 
-        elif self.pair_cov is not None:
-            mini = lmfit.Minimizer(residuals, params, fcn_args=(self.rho, None, self.N_mat_inv))
-            opt_params = mini.minimize('Nelder-Mead')
+            orf = np.sum(clm[:,None] * self.Gamma_lm, axis = 0)
 
-        else:
-            raise ValueError("pair_cov is True, but no pair covariance matrix was supplied")
+            model_orf = A_mono + A2*orf
+            
+            r = self.rho - model_orf 
 
-        #Return the full output object for user.
-        #Post-processing help in utils and lmfit documentation
+            return Lt @ r
+        
+        
+        mini = lmfit.Minimizer(residuals, params)
+        opt_params = mini.minimize(method)
         return opt_params
 
 

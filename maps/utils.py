@@ -82,12 +82,14 @@ def convert_blm_params_to_clm(pta_anis, blm_params):
     return clms_rvylm
 
 
-def signal_to_noise(pta, lm_params = None, use_pair_cov = False):
+def signal_to_noise(pta, lm_params = None, pair_cov = False, method = 'leastsq'):
     """A function to compute the SNR of the square-root spherical harmonic anisotropy.
 
     This function computes the signal-to-noise ratio of anisotropy in the square-root 
     spherical harmonic model. This function computes equation 17 from the paper
     Pol, Taylor, Romano 2022. 
+    NOTE: If using pair covariance, the noise model will ignore this, as the null 
+    hypothesis has uncorrelated noise.
     NOTE: This function only works with the square-root spherical harmonic model.
     NOTE: This function returns the square of the signal-to-noise ratio!
 
@@ -107,45 +109,59 @@ def signal_to_noise(pta, lm_params = None, use_pair_cov = False):
     """
 
     if lm_params is None:
-        lm_out = pta.max_lkl_sqrt_power()
+        lm_out = pta.max_lkl_sqrt_power(pair_cov=pair_cov,method=method)
     else:
         lm_out = lm_params
 
-    pta_mono = ap.anis_pta(pta.psrs_theta, pta.psrs_phi, pta.xi, pta.rho, pta.sig, 
+    iso_pta = ap.anis_pta(pta.psrs_theta, pta.psrs_phi, pta.xi, pta.rho, pta.sig, 
                  os = 1, pair_cov = pta.pair_cov, l_max = 0, nside = pta.nside, 
                  mode = pta.mode, use_physical_prior = pta.use_physical_prior, 
                  include_pta_monopole = pta.include_pta_monopole, 
                  pair_idx = pta.pair_idx) #OS already applied in pta
 
-    lm_out_mono = pta_mono.max_lkl_sqrt_power()
+    lm_out_iso = iso_pta.max_lkl_sqrt_power(pair_cov=pair_cov,method=method)
 
-    lp = np.array(list(lm_out.params.valuesdict().values()))
-    lp_mono = np.array(list(lm_out_mono.params.valuesdict().values()))
+    mini = np.array(list(lm_out.params.valuesdict().values()))
+    iso_mini = np.array(list(lm_out_iso.params.valuesdict().values()))
 
+    # Convert blm to clm
     if pta.include_pta_monopole:
-        opt_clm = convert_blm_params_to_clm(pta, lp[2:])
-        opt_clm_mono = convert_blm_params_to_clm(pta_mono, lp_mono[2:])
-    else:
-        opt_clm = convert_blm_params_to_clm(pta, lp[1:])
-        opt_clm_mono = convert_blm_params_to_clm(pta_mono, lp_mono[1:])
+        A_mono = 10**mini[0]
+        A2 = 10**mini[1]
+        iso_A_mono = 10**iso_mini[0]
+        iso_A2 = 10**iso_mini[1]
 
-    if pta.include_pta_monopole:
-        ml_orf = pta.orf_from_clm(np.append((lp[1]), opt_clm)) + (10 ** lp[0]) * 0.5
-        hd_orf = pta_mono.orf_from_clm(np.append((lp_mono[1]), opt_clm_mono)) + (10 ** lp_mono[0]) * 0.5
-    else:
-        ml_orf = pta.orf_from_clm(np.append((lp[0]), opt_clm))
-        hd_orf = pta_mono.orf_from_clm(np.append((lp_mono[0]), opt_clm_mono))
+        clm = convert_blm_params_to_clm(pta, mini[2:])
+        iso_clm = convert_blm_params_to_clm(iso_pta, iso_mini[2:])
 
-    if use_pair_cov:
+    else:
+        A_mono = 0
+        A2 = mini[0]
+        iso_A_mono = 0
+        iso_A2 = iso_mini[0]
+
+        clm = convert_blm_params_to_clm(pta, mini[1:])
+        iso_clm = convert_blm_params_to_clm(iso_pta, iso_mini[1:])
+
+    ani_orf = A_mono + A2*pta.orf_from_clm(clm, include_scale=False)
+    iso_orf = iso_A_mono + iso_A2*iso_pta.orf_from_clm(iso_clm, include_scale=False) 
+
+
+    if pair_cov:
         if pta.pair_cov is None:
             raise ValueError("Pair covariance matrix is not set.")
-        snm = (-1/2)*((pta.rho - ml_orf) @ pta.N_mat_inv @ (pta.rho - ml_orf))
-        hdnm = (-1/2)*((pta.rho - hd_orf).T @ pta.N_mat_inv @ (pta.rho - hd_orf))
-        nm = (-1/2)*((pta.rho).T @ pta.N_mat_inv @ (pta.rho))
+        covinv = pta.pair_cov_N_inv
+        noiseinv = pta.pair_ind_N_inv
     else:
-        snm = np.sum(-1 * (pta.rho - ml_orf) ** 2 / (2 * (pta.sig) ** 2))
-        nm = np.sum(-1 * (pta.rho) ** 2 / (2 * (pta.sig) ** 2))
-        hdnm = np.sum(-1 * (pta.rho - hd_orf) ** 2 / (2 * (pta.sig) ** 2))
+        covinv = pta.pair_ind_N_inv
+        noiseinv = pta.pair_ind_N_inv
+    
+    ani_res = pta.rho - ani_orf
+    iso_res = pta.rho - iso_orf
+
+    snm = (-1/2)*((ani_res).T @ covinv @ (ani_res)) # Anisotropy chi-square
+    hdnm = (-1/2)*((iso_res).T @ covinv @ (iso_res)) # Isotropy chi-square
+    nm = (-1/2)*((pta.rho).T @ noiseinv @ (pta.rho)) # Null chi-square (Not pair covariant)
 
     total_sn = 2 * (snm - nm)
     iso_sn = 2 * (hdnm - nm)
