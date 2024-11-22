@@ -109,7 +109,7 @@ def signal_to_noise(pta, lm_params = None, pair_cov = False, method = 'leastsq')
     """
 
     if lm_params is None:
-        lm_out = pta.max_lkl_sqrt_power()
+        lm_out = pta.max_lkl_sqrt_power(pair_cov=pair_cov,method=method)
     else:
         lm_out = lm_params
 
