@@ -136,9 +136,9 @@ def signal_to_noise(pta, lm_params = None, pair_cov = False, method = 'leastsq')
 
     else:
         A_mono = 0
-        A2 = mini[0]
+        A2 = 10**mini[0]
         iso_A_mono = 0
-        iso_A2 = iso_mini[0]
+        iso_A2 = 10**iso_mini[0]
 
         clm = convert_blm_params_to_clm(pta, mini[1:])
         iso_clm = convert_blm_params_to_clm(iso_pta, iso_mini[1:])
