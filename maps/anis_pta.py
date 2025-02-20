@@ -9,7 +9,11 @@ from PTMCMCSampler.PTMCMCSampler import PTSampler as ptmcmc
 from enterprise.signals import anis_coefficients as ac
 
 import sympy
-from scipy.integrate import trapz
+
+try:
+    from scipy.integrate import trapz
+except ImportError:
+    from scipy.integrate import trapezoid as trapz
 
 import scipy.linalg as sl
 
