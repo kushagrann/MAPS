@@ -9,7 +9,11 @@ from PTMCMCSampler.PTMCMCSampler import PTSampler as ptmcmc
 from enterprise.signals import anis_coefficients as ac
 
 import sympy
-from scipy.integrate import trapz
+
+try:
+    from scipy.integrate import trapz
+except ImportError:
+    from scipy.integrate import trapezoid as trapz
 
 import scipy.linalg as sl
 
@@ -196,6 +200,7 @@ class anis_pta():
         """
         # Read in OS and normalize cross-correlations by OS. 
         # (i.e. get <rho/OS> = <ORF>)
+        self._Lt_pc, self._Lt_nopc = None, None # Reset the cholesky decompositions
 
         if (rho is not None) and (sig is not None) and (os is not None):
             self.os = os
@@ -776,10 +781,14 @@ class anis_pta():
         # Define L such that L @ L.T = C^-1
         if pair_cov: 
             # Use the Cholesky decomposition to get L
-            Lt = sl.cholesky(self.pair_cov_N_inv, lower = True).T
+            if self._Lt_pc is None: # No reason to recompute these if done already
+                self._Lt_pc = sl.cholesky(self.pair_cov_N_inv, lower = True).T
+            Lt = self._Lt_pc
         else: 
             # Without pair covariance, L = L.T = diag(1/sig)
-            Lt = np.diag(1 / self.sig).T
+            if self._Lt_nopc is None: # No reason to recompute these if done already
+                self._Lt_nopc = np.diag(1 / self.sig).T
+            Lt = self._Lt_nopc
 
 
         def residuals(params):
