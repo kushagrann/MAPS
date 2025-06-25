@@ -7,6 +7,11 @@ from PTMCMCSampler.PTMCMCSampler import PTSampler as ptmcmc
 
 from enterprise.signals import anis_coefficients as ac
 
+try:
+    from scipy.integrate import trapz
+except ImportError:
+    from scipy.integrate import trapezoid as trapz
+
 import sympy
 
 import scipy.linalg as sl
@@ -17,6 +22,13 @@ from . import anis_pta as ap
 from scipy.interpolate import interp1d
 from astroML.linear_model import LinearRegression
 
+def normalize_map(pta, ip_map):
+
+    pix_area = hp.nside2pixarea(nside = pta.nside)
+    norm = 4 * np.pi / trapz(ip_map, dx = pix_area)
+
+    return ip_map * norm
+    
 def generate_random_psr(n_psrs = 50, seed = None):
 
     rng = nr.default_rng(seed)

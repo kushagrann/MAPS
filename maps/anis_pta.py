@@ -1,5 +1,6 @@
 import numpy as np, sympy as sp, scipy.special as scsp
 import scipy.optimize as sopt
+import warnings
 
 import pickle, healpy as hp
 
@@ -91,7 +92,7 @@ class anis_pta():
             l_max (int): The maximum l value for spherical harmonics.
             nside (int): The nside of the healpix sky pixelization.
             mode (str): The mode of the spherical harmonic decomposition to use.
-                Must be 'power_basis', 'sqrt_power_basis', or 'hybrid'.
+                Options of 'power_basis', 'sqrt_power_basis', or 'hybrid' will have full functionality; "pixel" will have limited features.
             use_physical_prior (bool): Whether to use physical priors or not.
             include_pta_monopole (bool): Whether to include the monopole term in the search.
             pair_idx (np.ndarray, optional): An array of pulsar indices for each pair [npair x 2].
@@ -150,9 +151,11 @@ class anis_pta():
 
         if mode in ['power_basis', 'sqrt_power_basis', 'hybrid']:
             self.mode = mode
+        elif mode == 'pixel':
+            self.mode = mode
+            warnings.warn("Using Pixel basis. Some features/attributes/methods may not work!")
         else:
-            raise ValueError("mode must be either 'power_basis','sqrt_power_basis' or 'hybrid'")
-
+            raise ValueError("mode must be either 'pixel', 'power_basis','sqrt_power_basis' or 'hybrid'")
         
         self.sqrt_basis_helper = CG.clebschGordan(l_max = self.l_max)
         #self.reorder, self.neg_idx, self.zero_idx, self.pos_idx = self.reorder_hp_ylm()
@@ -162,6 +165,8 @@ class anis_pta():
         elif self.mode == 'sqrt_power_basis':
             #self.ndim = 1 + (2 * (hp.Alm.getsize(int(self.blmax)) - self.blmax))
             self.ndim = 1 + (self.blmax + 1) ** 2
+        elif self.mode == 'pixel':
+            self.ndim = self.npix
 
         self.F_mat = self.antenna_response()
 
@@ -699,6 +704,103 @@ class anis_pta():
 
         return clms, clm_err, cn, sv
 
+    def fw_pixel(self,  params = None, pair_cov = False, physical_prior = True, method = 'leastsq'):
+        """
+        NOTE: you will need to re-normalize the best-fit output such that integral of power over whole sky comes out to 4pi sr. There is a helper 
+        function in utils called normalize_map.
+        """
+        params = []
+        if self.include_pta_monopole:
+            # (name, value, vary, min, max, expr, brute_step)
+            x = ['log10_A_mono', np.log10(nr.uniform(1e-2, 3)), True, None, None, None, None]
+            params.append(x)
+    
+            #x = ['log10_A2', np.log10(nr.uniform(1e-2, 3)), True, None, None, None, None]
+            if physical_prior:
+                for ii in range(self.npix):
+                    x = ['pix_{}'.format(ii), np.log10(nr.uniform(1e-2, 3)), True, 0, None, None, None]
+                    params.append(x)
+            else:
+                for ii in range(self.npix):
+                    x = ['pix_{}'.format(ii), np.log10(nr.uniform(1e-2, 3)), True, None, None, None, None]
+                    params.append(x)
+                    
+        else:
+            if physical_prior:
+                for ii in range(self.npix):
+                    x = ['pix_{}'.format(ii), np.log10(nr.uniform(1e-2, 3)), True, 0, None, None, None]
+                    params.append(x)
+            else:
+                for ii in range(self.npix):
+                    x = ['pix_{}'.format(ii), np.log10(nr.uniform(1e-2, 3)), True, None, None, None, None]
+                    params.append(x)
+                    
+        lmf_params = Parameters()
+        lmf_params.add_many(*params)
+    
+        params = lmf_params
+        
+        if pair_cov: 
+            # Use the Cholesky decomposition to get L
+            if self._Lt_pc is None: # No reason to recompute these if done already
+                self._Lt_pc = sl.cholesky(self.pair_cov_N_inv, lower = True).T
+            Lt = self._Lt_pc
+        else: 
+            # Without pair covariance, L = L.T = diag(1/sig)
+            if self._Lt_nopc is None: # No reason to recompute these if done already
+                self._Lt_nopc = np.diag(1 / self.sig).T
+            Lt = self._Lt_nopc
+    
+    
+        def residuals(params):
+            """A function to calculate the residuals for the lmfit minimizer.
+    
+            lmfit prefers residuals rather than scalars (more options and uncertainties 
+            are returned more often). If we use pair covariance, our residuals are more 
+            difficult than without. To combat this, we can define a whitening transformation 
+            to remove covariances between residuals: 
+            https://en.wikipedia.org/wiki/Whitening_transformation
+        
+            chi_square = -(r.T @ C^-1 @ r)
+            = -(r.T @ L @ L.T @ r)
+            = -(L.T @ r).T @ (L.T @ r)
+            Therefore, our whitening transformation matrix is L.T
+        
+            This behavior is identical to what is done in scipy's curve_fit.
+    
+            Args:
+                params (lmfit.Parameters): The set of parameters to minimize.
+            
+            Returns:
+                np.ndarray: The noise-weighted (and whitened) residuals.
+            """
+            param_dict = params.valuesdict() # Get the input parameters (dict)            
+            param_arr = np.array(list(param_dict.values())) # Convert to numpy array
+    
+            if self.include_pta_monopole:
+                A_mono = 10**param_arr[0]
+                pixel_map = param_arr[1:]
+            else:
+                A_mono = 0
+                pixel_map = param_arr
+    
+            pix_area = hp.nside2pixarea(nside = self.nside)
+            norm = 4 * np.pi / trapz(pixel_map, dx = pix_area)
+    
+            pixel_map_n = pixel_map * norm
+            
+            orf = np.dot(self.F_mat, pixel_map_n)
+    
+            model_orf = A_mono + orf
+            
+            r = self.rho - model_orf 
+    
+            return Lt @ r
+    
+        mini = lmfit.Minimizer(residuals, params)
+        opt_params = mini.minimize(method)
+        return opt_params
+    
     def fw_sph_harm(self,  params = None, pair_cov = False, method = 'leastsq'):
     
         params = []
