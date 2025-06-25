@@ -170,38 +170,36 @@ def signal_to_noise(pta, lm_params = None, pair_cov = False, method = 'leastsq')
     return total_sn, iso_sn, anis_sn
 
 
-def angular_power_spectrum(clm):
-    """A function to compute the angular power spectrum from the spherical harmonic coefficients.
-
-    This function computes the angular power spectrum from the spherical harmonic coefficients
-    by taking the average of the square of the coefficients for each l.
-
-    Args:
-        clm (np.ndarray): The array of spherical harmonic coefficients
-
-    Returns:
-        C_l: The angular power spectrum per spherical harmonic l.
-    """
+def angular_power_spectrum(clm, clm_err = None):
 
     maxl = int(np.sqrt(clm.shape[0]))
     new_clm2 = clm ** 2
 
     C_l = np.zeros((maxl))
+    if clm_err is not None:
+        C_l_err = np.zeros((maxl))
+    
     idx = 0
 
     for ll in range(maxl):
         if ll == 0:
             C_l[ll] = new_clm2[ll]
+            if clm_err is not None:
+                C_l_err[ll] = np.sqrt(4 * new_clm2[ll] * clm_err[ll] ** 2)
             idx += 1
         else:
             subset_len = 2 * ll + 1
             subset = np.arange(idx, idx + subset_len)
 
             C_l[ll] = np.sum(new_clm2[subset]) / (2 * ll + 1)
+            if clm_err is not None:
+                C_l_err[ll] = np.sqrt(np.sum(4 * new_clm2[subset] * clm_err[subset] / (2 * ll + 1)))
             idx = subset[-1]
 
-    return C_l
-
+    if clm_err is not None:
+        return C_l, C_l_err
+    else:
+        return C_l
 
 def draw_random_sample(ip_arr, bins = 50, nsamp = 10):
     """A function to draw a random sample from a distribution using inverse transform sampling.
