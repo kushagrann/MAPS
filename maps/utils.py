@@ -17,6 +17,14 @@ from . import anis_pta as ap
 from scipy.interpolate import interp1d
 from astroML.linear_model import LinearRegression
 
+def generate_random_psr(n_psrs = 50, seed = None):
+
+    rng = nr.default_rng(seed)
+    
+    psrs_phi = rng.uniform(low = 0, high = 2 * np.pi, size = n_psrs)
+    psrs_theta = np.arccos(1 - 2 * rng.uniform(0, 1, size = n_psrs))
+    
+    return psrs_phi, psrs_theta
 
 def invert_omega(hp_map):
     """A function to change between GW propogation direction and GW source direction.
