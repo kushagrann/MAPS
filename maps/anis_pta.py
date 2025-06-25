@@ -699,6 +699,100 @@ class anis_pta():
 
         return clms, clm_err, cn, sv
 
+    def fw_sph_harm(self,  params = None, pair_cov = False, method = 'leastsq'):
+    
+        params = []
+        if pta.include_pta_monopole:
+            # (name, value, vary, min, max, expr, brute_step)
+            x = ['log10_A_mono', np.log10(nr.uniform(1e-2, 3)), True, None, None, None, None]
+            params.append(x)
+    
+            x = ['log10_A2', np.log10(nr.uniform(1e-2, 3)), True, None, None, None, None]
+            params.append(x)
+        else:
+            x = ['log10_A2', np.log10(nr.uniform(0, 3)), True, None, None, None, None]
+            params.append(x)
+    
+        for ll in range(self.l_max + 1):
+            for mm in range(-ll, ll + 1):
+    
+                if ll == 0:
+                    # (name, value, vary, min, max, expr, brute_step)
+                    x = ['c_{}{}'.format(ll, mm), np.sqrt(4 * np.pi), False, None, None, None, None]
+                    params.append(x)
+                    
+                elif mm >= 0:
+                    # (name, value, vary, min, max, expr, brute_step)
+                    x = ['c_{}{}'.format(ll, mm), nr.uniform(-1, 1), True, None, None, None, None]
+                    params.append(x)
+    
+                elif mm < 0:
+                    # (name, value, vary, min, max, expr, brute_step)
+                    x = ['c_{}m{}'.format(ll, np.abs(mm)), nr.uniform(-1, 1), True, None, None, None, None]
+                    params.append(x)
+    
+        lmf_params = Parameters()
+        lmf_params.add_many(*params)
+    
+        params = lmf_params
+        
+        if pair_cov: 
+            # Use the Cholesky decomposition to get L
+            if self._Lt_pc is None: # No reason to recompute these if done already
+                self._Lt_pc = sl.cholesky(self.pair_cov_N_inv, lower = True).T
+            Lt = self._Lt_pc
+        else: 
+            # Without pair covariance, L = L.T = diag(1/sig)
+            if self._Lt_nopc is None: # No reason to recompute these if done already
+                self._Lt_nopc = np.diag(1 / self.sig).T
+            Lt = self._Lt_nopc
+    
+    
+        def residuals(params):
+            """A function to calculate the residuals for the lmfit minimizer.
+    
+            lmfit prefers residuals rather than scalars (more options and uncertainties 
+            are returned more often). If we use pair covariance, our residuals are more 
+            difficult than without. To combat this, we can define a whitening transformation 
+            to remove covariances between residuals: 
+            https://en.wikipedia.org/wiki/Whitening_transformation
+        
+            chi_square = -(r.T @ C^-1 @ r)
+            = -(r.T @ L @ L.T @ r)
+            = -(L.T @ r).T @ (L.T @ r)
+            Therefore, our whitening transformation matrix is L.T
+        
+            This behavior is identical to what is done in scipy's curve_fit.
+    
+            Args:
+                params (lmfit.Parameters): The set of parameters to minimize.
+            
+            Returns:
+                np.ndarray: The noise-weighted (and whitened) residuals.
+            """
+            param_dict = params.valuesdict() # Get the input parameters (dict)            
+            param_arr = np.array(list(param_dict.values())) # Convert to numpy array
+    
+            if self.include_pta_monopole:
+                A_mono = 10**param_arr[0]
+                A2 = 10**param_arr[1]
+                clm = param_arr[2:]
+            else:
+                A_mono = 0
+                A2 = 10**param_arr[0]
+                clm = param_arr[1:]
+    
+            orf = (self.Gamma_lm.T @ clm[:,None]).flatten()
+    
+            model_orf = A_mono + A2*orf
+            
+            r = self.rho - model_orf 
+    
+            return Lt @ r
+    
+        mini = lmfit.Minimizer(residuals, params)
+        opt_params = mini.minimize(method)
+        return opt_params
 
     def setup_lmfit_parameters(self):
         """A method to setup the lmfit Parameters object for the search.
