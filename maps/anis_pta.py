@@ -702,7 +702,7 @@ class anis_pta():
     def fw_sph_harm(self,  params = None, pair_cov = False, method = 'leastsq'):
     
         params = []
-        if pta.include_pta_monopole:
+        if self.include_pta_monopole:
             # (name, value, vary, min, max, expr, brute_step)
             x = ['log10_A_mono', np.log10(nr.uniform(1e-2, 3)), True, None, None, None, None]
             params.append(x)
