@@ -110,7 +110,7 @@ def signal_to_noise(pta, lm_params = None, pair_cov = False, method = 'leastsq')
     Pol, Taylor, Romano 2022. 
     NOTE: If using pair covariance, the noise model will ignore this, as the null 
     hypothesis has uncorrelated noise.
-    NOTE: This function only works with the square-root spherical harmonic model.
+    NOTE: This function only works with the linear and square-root spherical harmonic model.
     NOTE: This function returns the square of the signal-to-noise ratio!
 
     Args:
@@ -129,7 +129,10 @@ def signal_to_noise(pta, lm_params = None, pair_cov = False, method = 'leastsq')
     """
 
     if lm_params is None:
-        lm_out = pta.max_lkl_sqrt_power(pair_cov=pair_cov,method=method)
+        if pta.mode == 'sqrt_power_basis':
+            lm_out = pta.max_lkl_sqrt_power(pair_cov = pair_cov,method = method)
+        elif pta.mode == 'power_basis':
+            lm_out = pta.fw_sph_harm(pair_cov = pair_cov,method = method)
     else:
         lm_out = lm_params
 
@@ -138,9 +141,12 @@ def signal_to_noise(pta, lm_params = None, pair_cov = False, method = 'leastsq')
                  mode = pta.mode, use_physical_prior = pta.use_physical_prior, 
                  include_pta_monopole = pta.include_pta_monopole, 
                  pair_idx = pta.pair_idx) #OS already applied in pta
-
-    lm_out_iso = iso_pta.max_lkl_sqrt_power(pair_cov=pair_cov,method=method)
-
+    
+    if pta.mode == 'sqrt_power_basis':
+        lm_out_iso = iso_pta.max_lkl_sqrt_power(pair_cov=pair_cov,method=method)
+    elif pta.mode == 'power_basis':
+        lm_out_iso = iso_pta.fw_sph_harm(pair_cov = pair_cov, method = method)
+        
     mini = np.array(list(lm_out.params.valuesdict().values()))
     iso_mini = np.array(list(lm_out_iso.params.valuesdict().values()))
 
@@ -151,8 +157,12 @@ def signal_to_noise(pta, lm_params = None, pair_cov = False, method = 'leastsq')
         iso_A_mono = 10**iso_mini[0]
         iso_A2 = 10**iso_mini[1]
 
-        clm = convert_blm_params_to_clm(pta, mini[2:])
-        iso_clm = convert_blm_params_to_clm(iso_pta, iso_mini[2:])
+        if pta.mode == 'sqrt_power_basis':
+            clm = convert_blm_params_to_clm(pta, mini[2:])
+            iso_clm = convert_blm_params_to_clm(iso_pta, iso_mini[2:])
+        else:
+            clm = mini[2:]
+            iso_clm = iso_mini[2:]
 
     else:
         A_mono = 0
@@ -160,12 +170,15 @@ def signal_to_noise(pta, lm_params = None, pair_cov = False, method = 'leastsq')
         iso_A_mono = 0
         iso_A2 = 10**iso_mini[0]
 
-        clm = convert_blm_params_to_clm(pta, mini[1:])
-        iso_clm = convert_blm_params_to_clm(iso_pta, iso_mini[1:])
+        if pta.mode == 'sqrt_power_basis':
+            clm = convert_blm_params_to_clm(pta, mini[1:])
+            iso_clm = convert_blm_params_to_clm(iso_pta, iso_mini[1:])
+        else:
+            clm = mini[1:]
+            iso_clm = iso_mini[1:]
 
     ani_orf = A_mono + A2*pta.orf_from_clm(clm, include_scale=False)
     iso_orf = iso_A_mono + iso_A2*iso_pta.orf_from_clm(iso_clm, include_scale=False) 
-
 
     if pair_cov:
         if pta.pair_cov is None:
@@ -188,7 +201,6 @@ def signal_to_noise(pta, lm_params = None, pair_cov = False, method = 'leastsq')
     anis_sn = 2 * (snm - hdnm)
 
     return total_sn, iso_sn, anis_sn
-
 
 def angular_power_spectrum(clm, clm_err = None):
 

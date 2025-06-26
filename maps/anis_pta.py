@@ -704,41 +704,106 @@ class anis_pta():
 
         return clms, clm_err, cn, sv
 
+    def setup_lmfit_parameters(self, physical_prior = True):
+        """A method to setup the lmfit Parameters object for the search.
+    
+        NOTE: This method is designed specifcally for the sqrt power basis. As
+        such, it will not work for the power basis and may throw exceptions!
+        Args:
+            physical_prior (boolean, optional): Toggle physical prior for linear spherical harmonic basis.
+                
+        Returns:
+            lmfit.Parameters: The lmfit Parameters object
+        """
+        # TODO: Make this function work for other bases?
+        # This shape is to fit with lmfit's Parameter.add_many();
+        # Format is (name, value, vary, min, max, expr, brute_step)
+        params = []
+    
+        if self.include_pta_monopole:
+            # (name, value, vary, min, max, expr, brute_step)
+            x = ['log10_A_mono', np.log10(nr.uniform(1e-2, 3)), True, np.log10(1e-2), np.log10(1e2), None, None]
+            params.append(x)
+    
+            if self.mode == 'sqrt_power_basis':
+                x = ['log10_A2', np.log10(nr.uniform(1e-2, 3)), True, np.log10(1e-2), np.log10(1e2), None, None]
+                params.append(x)
+            elif self.mode == 'power_basis':
+                x = ['log10_A2', np.log10(nr.uniform(1e-2, 3)), True, None, None, None, None]
+                params.append(x)
+        else:
+            if self.mode == 'sqrt_power_basis':
+                x = ['log10_A2', np.log10(nr.uniform(1e-2, 3)), True, np.log10(1e-2), np.log10(1e2), None, None]
+                params.append(x)
+            elif self.mode == 'power_basis':
+                x = ['log10_A2', np.log10(nr.uniform(1e-2, 3)), True, None, None, None, None]
+                params.append(x)
+    
+        if self.mode == 'sqrt_power_basis':
+                
+            # Now for non-monopole terms!
+            for ll in range(self.blmax + 1):
+                for mm in range(0, ll + 1):
+                    
+                    if ll == 0:
+                        # (name, value, vary, min, max, expr, brute_step)
+                        x = ['b_{}{}'.format(ll, mm), 1., False, None, None, None, None]
+                        params.append(x)
+                        
+                    elif mm == 0:
+                        # (name, value, vary, min, max, expr, brute_step)
+                        x = ['b_{}{}'.format(ll, mm), nr.uniform(-1, 1), True, None, None, None, None]
+                        params.append(x)
+        
+                    elif mm != 0:
+                        # (name, value, vary, min, max, expr, brute_step)
+                        #Amplitude is always >= 0; initial guess set to small non-zero value
+                        x = ['b_{}{}_amp'.format(ll, mm), nr.uniform(0, 3), True, 0, None, None, None]
+                        params.append(x)
+                        
+                        x = ['b_{}{}_phase'.format(ll, mm), nr.uniform(0, 2 * np.pi), True, 0, 2 * np.pi, None, None]
+                        params.append(x)
+    
+        if self.mode == 'power_basis':
+            for ll in range(self.l_max + 1):
+                for mm in range(-ll, ll + 1):
+                    
+                    if ll == 0:
+                        # (name, value, vary, min, max, expr, brute_step)
+                        x = ['c_{}{}'.format(ll, mm), np.sqrt(4 * np.pi), False, None, None, None, None]
+                        params.append(x)
+                        
+                    elif mm >= 0:
+                        # (name, value, vary, min, max, expr, brute_step)
+                        x = ['c_{}{}'.format(ll, mm), nr.uniform(-1, 1), True, None, None, None, None]
+                        params.append(x)
+        
+                    elif mm < 0:
+                        # (name, value, vary, min, max, expr, brute_step)
+                        x = ['c_{}m{}'.format(ll, np.abs(mm)), nr.uniform(-1, 1), True, None, None, None, None]
+                        params.append(x)
+    
+        if self.mode == 'pixel':
+            if physical_prior:
+                for ii in range(self.npix):
+                    x = ['pix_{}'.format(ii), np.log10(nr.uniform(1e-2, 3)), True, 0, None, None, None]
+                    params.append(x)
+            else:
+                for ii in range(self.npix):
+                    x = ['pix_{}'.format(ii), np.log10(nr.uniform(1e-2, 3)), True, None, None, None, None]
+                    params.append(x)
+                        
+        lmf_params = Parameters()
+        lmf_params.add_many(*params)
+    
+        return lmf_params
+        
     def fw_pixel(self,  params = None, pair_cov = False, physical_prior = True, method = 'leastsq'):
         """
         NOTE: you will need to re-normalize the best-fit output such that integral of power over whole sky comes out to 4pi sr. There is a helper 
         function in utils called normalize_map.
         """
-        params = []
-        if self.include_pta_monopole:
-            # (name, value, vary, min, max, expr, brute_step)
-            x = ['log10_A_mono', np.log10(nr.uniform(1e-2, 3)), True, None, None, None, None]
-            params.append(x)
-    
-            #x = ['log10_A2', np.log10(nr.uniform(1e-2, 3)), True, None, None, None, None]
-            if physical_prior:
-                for ii in range(self.npix):
-                    x = ['pix_{}'.format(ii), np.log10(nr.uniform(1e-2, 3)), True, 0, None, None, None]
-                    params.append(x)
-            else:
-                for ii in range(self.npix):
-                    x = ['pix_{}'.format(ii), np.log10(nr.uniform(1e-2, 3)), True, None, None, None, None]
-                    params.append(x)
-                    
-        else:
-            if physical_prior:
-                for ii in range(self.npix):
-                    x = ['pix_{}'.format(ii), np.log10(nr.uniform(1e-2, 3)), True, 0, None, None, None]
-                    params.append(x)
-            else:
-                for ii in range(self.npix):
-                    x = ['pix_{}'.format(ii), np.log10(nr.uniform(1e-2, 3)), True, None, None, None, None]
-                    params.append(x)
-                    
-        lmf_params = Parameters()
-        lmf_params.add_many(*params)
-    
-        params = lmf_params
+        params = self.setup_lmfit_parameters() if params is None else params
         
         if pair_cov: 
             # Use the Cholesky decomposition to get L
@@ -803,40 +868,7 @@ class anis_pta():
     
     def fw_sph_harm(self,  params = None, pair_cov = False, method = 'leastsq'):
     
-        params = []
-        if self.include_pta_monopole:
-            # (name, value, vary, min, max, expr, brute_step)
-            x = ['log10_A_mono', np.log10(nr.uniform(1e-2, 3)), True, None, None, None, None]
-            params.append(x)
-    
-            x = ['log10_A2', np.log10(nr.uniform(1e-2, 3)), True, None, None, None, None]
-            params.append(x)
-        else:
-            x = ['log10_A2', np.log10(nr.uniform(0, 3)), True, None, None, None, None]
-            params.append(x)
-    
-        for ll in range(self.l_max + 1):
-            for mm in range(-ll, ll + 1):
-    
-                if ll == 0:
-                    # (name, value, vary, min, max, expr, brute_step)
-                    x = ['c_{}{}'.format(ll, mm), np.sqrt(4 * np.pi), False, None, None, None, None]
-                    params.append(x)
-                    
-                elif mm >= 0:
-                    # (name, value, vary, min, max, expr, brute_step)
-                    x = ['c_{}{}'.format(ll, mm), nr.uniform(-1, 1), True, None, None, None, None]
-                    params.append(x)
-    
-                elif mm < 0:
-                    # (name, value, vary, min, max, expr, brute_step)
-                    x = ['c_{}m{}'.format(ll, np.abs(mm)), nr.uniform(-1, 1), True, None, None, None, None]
-                    params.append(x)
-    
-        lmf_params = Parameters()
-        lmf_params.add_many(*params)
-    
-        params = lmf_params
+        params = self.setup_lmfit_parameters() if params is None else params
         
         if pair_cov: 
             # Use the Cholesky decomposition to get L
@@ -895,59 +927,6 @@ class anis_pta():
         mini = lmfit.Minimizer(residuals, params)
         opt_params = mini.minimize(method)
         return opt_params
-
-    def setup_lmfit_parameters(self):
-        """A method to setup the lmfit Parameters object for the search.
-
-        NOTE: This method is designed specifcally for the sqrt power basis. As
-        such, it will not work for the power basis and may throw exceptions!
-
-        Returns:
-            lmfit.Parameters: The lmfit Parameters object
-        """
-        # TODO: Make this function work for other bases?
-        # This shape is to fit with lmfit's Parameter.add_many();
-        # Format is (name, value, vary, min, max, expr, brute_step)
-        params = []
-
-        if self.include_pta_monopole:
-            # (name, value, vary, min, max, expr, brute_step)
-            x = ['log10_A_mono', np.log10(nr.uniform(1e-2, 3)), True, np.log10(1e-2), np.log10(1e2), None, None]
-            params.append(x)
-
-            x = ['log10_A2', np.log10(nr.uniform(1e-2, 3)), True, np.log10(1e-2), np.log10(1e2), None, None]
-            params.append(x)
-        else:
-            x = ['log10_A2', np.log10(nr.uniform(0, 3)), True, np.log10(1e-2), np.log10(1e2), None, None]
-            params.append(x)
-
-        # Now for non-monopole terms!
-        for ll in range(self.blmax + 1):
-            for mm in range(0, ll + 1):
-
-                if ll == 0:
-                    # (name, value, vary, min, max, expr, brute_step)
-                    x = ['b_{}{}'.format(ll, mm), 1., False, None, None, None, None]
-                    params.append(x)
-                    
-                elif mm == 0:
-                    # (name, value, vary, min, max, expr, brute_step)
-                    x = ['b_{}{}'.format(ll, mm), nr.uniform(-1, 1), True, None, None, None, None]
-                    params.append(x)
-
-                elif mm != 0:
-                    # (name, value, vary, min, max, expr, brute_step)
-                    #Amplitude is always >= 0; initial guess set to small non-zero value
-                    x = ['b_{}{}_amp'.format(ll, mm), nr.uniform(0, 3), True, 0, None, None, None]
-                    params.append(x)
-                    
-                    x = ['b_{}{}_phase'.format(ll, mm), nr.uniform(0, 2 * np.pi), True, 0, 2 * np.pi, None, None]
-                    params.append(x)
-
-        lmf_params = Parameters()
-        lmf_params.add_many(*params)
-
-        return lmf_params
     
 
     def max_lkl_sqrt_power(self, params = None, pair_cov = False, method = 'leastsq'):
