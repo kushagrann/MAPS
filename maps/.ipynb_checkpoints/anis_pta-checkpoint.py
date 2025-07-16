@@ -19,7 +19,8 @@ except ImportError:
 
 import scipy.linalg as sl
 
-from . import clebschGordan as CG, utils
+### Correct back to .
+from maps import clebschGordan as CG, utils
 
 from scipy.interpolate import interp1d
 from astroML.linear_model import LinearRegression
@@ -1324,6 +1325,7 @@ class set_bilby(bilby.Likelihood):
         self.log10_A2_prior_min = log10_A2_prior_min
         self.log10_A2_prior_max = log10_A2_prior_max
         self.priors = self._priors()
+        self.param_names = list(self.priors.keys())
 
         ### The sampler takes the parameter dictionary here to evaluate likelihood
         super().__init__(parameters=params)
