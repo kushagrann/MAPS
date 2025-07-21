@@ -3,4 +3,7 @@
 */__pycache__/
 
 build/
-*.egg-info/**/.ipynb_checkpoints/
+*.egg-info/
+
+# Jupyter notebook checkpoints
+**/.ipynb_checkpoints/
