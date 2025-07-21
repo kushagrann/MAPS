@@ -19,7 +19,6 @@ except ImportError:
 
 import scipy.linalg as sl
 
-### Correct back to .
 from maps import clebschGordan as CG, utils
 
 from scipy.interpolate import interp1d
@@ -849,6 +848,123 @@ class anis_pta():
         return opt_params
 
 
+    # A handy function to do some anisotropy injection stuff
+    def inject_anisotropy(self, method='power_basis', sim_clm_wo_00=None, sim_log10_A2=0.0, sim_sig=0.01, pair_cov=False, seed=42, 
+                          sim_power=50, sim_lon=270, sim_lat=45, sim_pixel_radius=10, return_vals=False):
+
+        """ A handy function to create a sky with injected anisotropy. 
+        This function upon completion creates 'injected' instances of the anis_pta object.
+
+        Args:
+            method (str, optional): The way of creating the inject sky. 'power_basis' or 'pixel'. 
+                Defaults to 'power_basis'.
+            sim_clm_wo_00 (list or np.ndarray): The list or array of clm values to inject for 'clm' method. 
+                Should be a list/array of (clm_size - 1) length. 
+                NOTE: c_00 is fixed internally to root(4pi).
+            sim_log10_A2 (float): The amplitude correction to assume. Defaults to 0.0
+            sim_sig (float): The cross-correlation uncertainty to assume. 
+                Defaults to 0.01.
+            pair_cov (bool): Whether to return the pair covariance matrix. 
+                Defaults to False.
+            seed (int): The seed to be passed to numpy random number generator for 'clm' method. 
+                Defaults to 42.
+
+            sim_power (int ot float): The power of anisotropy to inject in the sky for 'pixel' method. 
+                Defaults to 50.
+            sim_lon, sim_lat (int or float): The location of injection for 'pixel' method. 
+                Defaults to 270, 45 respectively.
+            sim_pixel_radius (int or float): The size of the pixel injection for 'pixel' method. 
+                Defaults to 10.
+            return_vals (bool, optional): Whether to return a tuple of injected parameters/power, rho and sig. 
+                Defaults to None.
+
+        Returns:
+            tuple (optional): A tuple of 4 np.ndarrays containing the injected log10_A2 and clm values 
+                if method is 'power_basis' or the injected power map if method is 'pixel', 
+                injected cross-correlations, injected cross-correlation uncertainties and 
+                injected pair covariance matrix (None if pair_cov=False).
+                NOTE: The function also creates 'injected' instances of the anis_pta.
+
+        Raises:
+            ValueError: If clm values (without c_00) not specified when method='power_basis'.
+            ValueError: If the size of sim_clm_wo_00 does not match the clm_size without c_00.
+            ValueError: If method not in ['power_basis', 'pixel'].
+
+        """
+
+        if method == 'power_basis':
+
+            # If sim_clm not specified
+            if sim_clm_wo_00 is None:
+                raise ValueError("Specify clm values (without c_00) in sim_clm_wo_00 to do a power_basis injection!")
+            # Check if the specified clm's include c_00 or more clm_values
+            if len(sim_clm_wo_00) == self.clm_size-1:
+                # Without c_00
+                clm_construct = {f"c_{i}{j}": 0.0 for i in range(1, self.l_max+1) for j in range(-i, i+1)}
+                inj_dict = {"log10_A2": sim_log10_A2, "c_00" : np.sqrt(4*np.pi), 
+                            **{key : sim_clm_wo_00[k] for k, key in enumerate(clm_construct)}}
+            else:
+                raise ValueError("The specified clm values either include c_00 or does not match the clm_size specified by l_max in anis_pta.")
+            # A numpy array to work with
+            inj_arr = np.array([inj_dict[i] for i in inj_dict])
+            A2_inject = 10 ** inj_arr[0]
+
+            inj_orf = A2_inject * (self.Gamma_lm.T @ inj_arr[1:, np.newaxis])
+            # Simulate sig
+            if pair_cov:
+                inj_pair_cov = np.diag(np.repeat(sim_sig, repeats=self.npairs))
+            else:
+                inj_pair_cov = None
+            inj_sig = np.repeat(sim_sig, repeats=self.npairs)
+
+            # Simulate rho - Shift by mean and scale by std
+            rng = nr.default_rng(seed=seed)
+            normal_dist = rng.normal(size=self.npairs)
+            inj_rho = inj_orf.reshape(self.npairs) + inj_sig*normal_dist
+
+            self.injected_params = inj_dict
+            self.injected_rho = inj_rho
+            self.injected_sig = inj_sig
+            self.injected_pair_cov = inj_pair_cov
+
+            if return_vals:
+                return inj_dict, inj_rho, inj_sig, inj_pair_cov
+
+
+        elif method == 'pixel':
+
+            # From MAPS example
+            # Simulate an isotropic background plus a hotspot
+            input_map = np.ones(self.npix)
+            vec = hp.ang2vec(sim_lon, sim_lat, lonlat=True)
+            radius = np.radians(sim_pixel_radius)
+
+            disk_anis = hp.query_disc(nside = self.nside, vec = vec, radius = radius, inclusive = False)
+    
+            input_map[disk_anis] += sim_power
+
+            # Simulate rho
+            inj_rho = self.F_mat @ input_map
+            # Simulate sig
+            if pair_cov:
+                inj_pair_cov = np.diag(np.repeat(sim_sig, repeats=self.npairs))
+            else:
+                inj_pair_cov = None
+            inj_sig = np.repeat(sim_sig, repeats=self.npairs)
+
+            self.injected_power = input_map
+            self.injected_rho = inj_rho
+            self.injected_sig = inj_sig
+            self.injected_pair_cov = inj_pair_cov
+
+            if return_vals:
+                return input_map, inj_rho, inj_sig, inj_pair_cov
+
+
+        else:
+            raise ValueError("method can only accept 'power_basis' or 'pixel'!")
+
+
     def LogPrior(self, params):
 
         """A method to return the log-priors for the given set of parameters.
@@ -913,7 +1029,7 @@ class anis_pta():
 
 
     def set_ptmcmc(self, clm_prior_min=-5, clm_prior_max=5, log10_A2_prior_min=-2, log10_A2_prior_max=2, 
-                   outdir='./ptmcmc', resume=False, save_anis_pta=False):
+                   outdir='./ptmcmc', resume=False, save_anisotropy=False):
 
         """A method to return the PTMCMC sampler to perform sampling.
 
@@ -926,7 +1042,7 @@ class anis_pta():
             log10_A2_prior_max (float, optional): Lower bound for log10_A2 uniform priors. Defaults to 2.
             outdir (str, optional): The path to save the chains. Defaults to './ptmcmc'
             resume (bool, optional): Whether to resume a previous run. Defaults to False
-            save_anis_pta (bool, optional): Whether to save the anisotropy object for post prcessing help. Defaults to False.
+            save_anisotropy (bool, optional): Whether to save the anisotropy object for post prcessing help. Defaults to False.
 
         Returns:
             object: The PTMCMC sampler object.
@@ -966,7 +1082,7 @@ class anis_pta():
                 f.write(pr.__repr__() + "\n")
 
         # save the anisotropy object
-        if save_anis_pta:
+        if save_anisotropy:
             saved_priors = self.priors
             del self.priors # cannot pickle with parameter class of enterprise.signals
             
@@ -1200,20 +1316,18 @@ class set_bilby(bilby.Likelihood):
         self.anisotropy_pta = anisotropy_pta
         if self.anisotropy_pta.mode == 'power_basis':
             params = {"log10_A2": 0.0, **{f"c_{i}{j}": 0.0 for i in range(1, anisotropy_pta.l_max+1) for j in range(-i, i+1)}}
-            self.clm_prior_min = clm_prior_min
-            self.clm_prior_max = clm_prior_max
         else:
             raise ValueError("Bilby is currently only defined in 'power_basis'!")
-
-        ### The sampler takes the parameter dictionary here to evaluate likelihood
-        super().__init__(parameters=params)
-        
+            
+        self.clm_prior_min = clm_prior_min
+        self.clm_prior_max = clm_prior_max
         self.log10_A2_prior_min = log10_A2_prior_min
         self.log10_A2_prior_max = log10_A2_prior_max
         self.priors = self._priors()
         self.param_names = list(self.priors.keys())
-        self.parameter_keys = self.param_names
-        self.ndim = len(self.parameter_keys)
+
+        ### The sampler takes the parameter dictionary here to evaluate likelihood
+        super().__init__(parameters=params)
     
 
     def _priors(self):
@@ -1249,11 +1363,11 @@ class set_bilby(bilby.Likelihood):
 
         if self.anisotropy_pta.mode == 'power_basis':
             
-            params = np.array([self.parameters[key] for key in self.parameter_keys])
+            params = np.array([self.parameters[i] for i in self.parameters])
             A2 = 10 ** params[0]
             ### Fixing c_00 = root(4pi)
             clm_00 = np.sqrt(4*np.pi)
-            clm_wo_00 = params[1:]
+            clm_wo_00 = params[1:] if type(params[1:]) is np.ndarray else np.array(params[1:])
             clm = np.concatenate(([clm_00], clm_wo_00))
     
             sim_orf = A2 * (self.anisotropy_pta.Gamma_lm.T @ clm[:, np.newaxis]) # (ncc x nclm) @ (nclm x 1) => RP - (ncc x 1)
