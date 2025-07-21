@@ -19,7 +19,7 @@ except ImportError:
 
 import scipy.linalg as sl
 
-from . import clebschGordan as CG, utils
+from maps import clebschGordan as CG, utils
 
 from scipy.interpolate import interp1d
 from astroML.linear_model import LinearRegression
