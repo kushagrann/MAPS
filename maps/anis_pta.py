@@ -941,12 +941,13 @@ class anis_pta():
             clm_prior = [parameter.Uniform(clm_prior_min, clm_prior_max)(f"c_{i}{j}") for i in range(1, self.l_max+1) for j in range(-i, i+1)]
             self.priors = [log10_A_prior, *clm_prior]
             self.param_names = [p.name for p in self.priors]
+            self.ndim = len(self.param_names)
 
         else:
             raise ValueError("Bayesian Inference is only defined for the 'power_basis' for now!")
         
         # dimension of parameter space
-        ndim = len(self.priors)
+        ndim = self.ndim
 
         # initial jump covariance matrix
         cov = np.diag(np.ones(ndim) * (0.1**2))
@@ -1176,7 +1177,7 @@ class anis_hypermodel():
 class set_bilby(bilby.Likelihood):
 
     def __init__(self, anisotropy_pta, clm_prior_min=-5, clm_prior_max=5, log10_A2_prior_min=-2, log10_A2_prior_max=2, 
-                 outdir='./bilby'):
+                 outdir='./bilby', save_anis_pta=False):
 
         """A class to perform bilby bayesian sampling with an anisotropy pta.
 
@@ -1191,6 +1192,7 @@ class set_bilby(bilby.Likelihood):
             clm_prior_max (float, optional): Lower bound for clm's uniform priors. Defaults to 5.
             log10_A2_prior_min (float, optional): Lower bound for log10_A2 uniform priors. Defaults to -2.
             log10_A2_prior_max (float, optional): Lower bound for log10_A2 uniform priors. Defaults to 2.
+            save_anis_pta (bool, optional): Whether to save the anis_pta as a pickle.
 
         Returns:
             object: bilby.Likelihood class object.
@@ -1211,9 +1213,19 @@ class set_bilby(bilby.Likelihood):
         self.log10_A2_prior_min = log10_A2_prior_min
         self.log10_A2_prior_max = log10_A2_prior_max
         self.priors = self._priors()
-        self.param_names = list(self.priors.keys())
-        self.parameter_keys = self.param_names
+        self.parameter_keys = list(self.priors.keys())
         self.ndim = len(self.parameter_keys)
+        
+        self.anisotropy_pta.param_names = self.parameter_keys
+        self.anisotropy_pta.priors = self.priors
+        self.anisotropy_pta.ndim = self.ndim
+        
+
+        # save the anisotropy object
+        if save_anis_pta:
+            os.makedirs(outdir, exist_ok=True) # creates the directory if doesn't exists
+            with open(os.path.join(outdir, "anis_pta.pickle"), "wb") as file:
+                pickle.dump(self.anisotropy_pta, file)
     
 
     def _priors(self):
@@ -1235,7 +1247,7 @@ class set_bilby(bilby.Likelihood):
                     priors[f"c_{i}{j}"] = Uniform(name=f"c_{i}{j}", minimum=self.clm_prior_min, maximum=self.clm_prior_max)
 
         return priors
-            
+
 
     def log_likelihood(self):
 
@@ -1272,35 +1284,37 @@ class set_bilby(bilby.Likelihood):
         return loglike
 
 
-    def noise_log_likelihood(self):
+    
+    #def noise_log_likelihood(self):
 
-        """A method to return the noise (isotropic) log-likelihood for the given set of parameters defined by the mode in anisotropy_pta.
+    #    """A method to return the noise (isotropic) log-likelihood for the given set of parameters defined by the mode in anisotropy_pta.
 
-        This function works with 'power_basis' for now.
+     #   This function works with 'power_basis' for now.
 
-        Returns:
-            float: The noise (isotropic) log-likelihood for the given parameters.
-        """
+     #   Returns:
+      #      float: The noise (isotropic) log-likelihood for the given parameters.
+      #  """
         
-        if self.anisotropy_pta.mode == 'power_basis':
+       # if self.anisotropy_pta.mode == 'power_basis':
             
-            A2 = 10 ** self.parameters['log10_A2']
+        #    A2 = 10 ** self.parameters['log10_A2']
             ### Fixing c_00 = root(4pi)
-            clm_00 = np.sqrt(4*np.pi)
-            clm_wo_00 = np.array([0.0 for i in range(1, self.anisotropy_pta.clm_size)])
-            clm = np.concatenate(([clm_00], clm_wo_00))
+         #   clm_00 = np.sqrt(4*np.pi)
+          #  clm_wo_00 = np.array([0.0 for i in range(1, self.anisotropy_pta.clm_size)])
+           # clm = np.concatenate(([clm_00], clm_wo_00))
         
-            sim_iso_orf = A2 * (self.anisotropy_pta.Gamma_lm.T @ clm[:, np.newaxis]) ### RP - (ncc x 1)
-            residual = self.anisotropy_pta.rho[:, np.newaxis] - sim_iso_orf  ### (ncc x 1)
+           # sim_iso_orf = A2 * (self.anisotropy_pta.Gamma_lm.T @ clm[:, np.newaxis]) ### RP - (ncc x 1)
+            #residual = self.anisotropy_pta.rho[:, np.newaxis] - sim_iso_orf  ### (ncc x 1)
 
-            if self.anisotropy_pta.pair_cov is not None:
-                lik_num = (residual.T @ self.anisotropy_pta.pair_cov_N_inv @ residual)[0][0] # (1 x ncc) @ (ncc x ncc) @ (ncc x 1) => (1 x 1)
-                iso_loglike = -0.5 * np.sum(lik_num + self.anisotropy_pta._lik_denom)
+            #if self.anisotropy_pta.pair_cov is not None:
+             #   lik_num = (residual.T @ self.anisotropy_pta.pair_cov_N_inv @ residual)[0][0] # (1 x ncc) @ (ncc x ncc) @ (ncc x 1) => (1 x 1)
+              #  iso_loglike = -0.5 * np.sum(lik_num + self.anisotropy_pta._lik_denom)
 
-            else:
-                lik_num = (residual.ravel()**2) / (self.anisotropy_pta.sig**2)
-                lik_denom = np.longdouble(self.anisotropy_pta.sig * np.sqrt(2 * np.pi))
-                iso_loglike = -0.5 * np.sum(lik_num + np.log(lik_denom))
+            #else:
+             #   lik_num = (residual.ravel()**2) / (self.anisotropy_pta.sig**2)
+             #   lik_denom = np.longdouble(self.anisotropy_pta.sig * np.sqrt(2 * np.pi))
+             #   iso_loglike = -0.5 * np.sum(lik_num + np.log(lik_denom))
         
 
-        return iso_loglike
+        #return iso_loglike
+    
