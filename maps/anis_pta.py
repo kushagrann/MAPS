@@ -226,7 +226,8 @@ class anis_pta():
             self.pair_cov = covariance / self.os**2
             
             # A handy attribute to be used in likelihood evaluation
-            self._lik_denom = np.linalg.slogdet(2 * np.pi * self.pair_cov)[1]
+            cov_det_sign, cov_set = np.linalg.slogdet(2 * np.pi * self.pair_cov)
+            self._lik_denom = cov_det_sign*cov_det
 
             # Get the inverse of the pair covariance matrix
             self.pair_cov_N_inv = self._get_N_inv(pair_cov = True)
