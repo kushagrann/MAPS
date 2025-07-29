@@ -905,7 +905,7 @@ class anis_pta():
 
             else:
                 lik_num = (residual.ravel()**2) / (self.sig**2)
-                lik_denom = np.longdouble(self.sig * np.sqrt(2 * np.pi))
+                lik_denom = np.longdouble(2 * np.pi * (self.sig**2))
                 loglike = -0.5 * np.sum(lik_num + np.log(lik_denom))
 
 
@@ -1277,7 +1277,7 @@ class set_bilby(bilby.Likelihood):
 
             else:
                 lik_num = (residual.ravel()**2) / (self.anisotropy_pta.sig**2)
-                lik_denom = np.longdouble(self.anisotropy_pta.sig * np.sqrt(2 * np.pi))
+                lik_denom = np.longdouble(2 * np.pi * (self.anisotropy_pta.sig**2))
                 loglike = -0.5 * np.sum(lik_num + np.log(lik_denom))
 
 
