@@ -226,7 +226,7 @@ class anis_pta():
             self.pair_cov = covariance / self.os**2
             
             # A handy attribute to be used in likelihood evaluation
-            cov_det_sign, cov_set = np.linalg.slogdet(2 * np.pi * self.pair_cov)
+            cov_det_sign, cov_det = np.linalg.slogdet(2 * np.pi * self.pair_cov)
             self._lik_denom = cov_det_sign*cov_det
 
             # Get the inverse of the pair covariance matrix
@@ -871,8 +871,20 @@ class anis_pta():
             log10_A2_pdf = self.priors[0].get_logpdf(log10_A2)
             clm_pdf = np.sum([p.get_logpdf(c) for p,c in zip(self.priors[1:], clm)])
 
-    
-        return log10_A2_pdf + clm_pdf 
+            return log10_A2_pdf + clm_pdf 
+
+        
+        elif self.mode == 'sqrt_power_basis':
+
+            log10_A2 = params[0]
+            blm = params[1:] if type(params[1:]) is np.ndarray else np.array(params[1:])
+
+            log10_A2_pdf = self.priors[0].get_logpdf(log10_A2)
+            blm_pdf = np.sum([p.get_logpdf(b) for p,b in zip(self.priors[1:], blm)])
+
+            return log10_A2_pdf + blm_pdf 
+
+
 
 
     def LogLikelihood(self, params):
@@ -896,24 +908,41 @@ class anis_pta():
             clm_00 = np.sqrt(4*np.pi)
             clm_wo_00 = params[1:] if type(params[1:]) is np.ndarray else np.array(params[1:])
             clm = np.concatenate(([clm_00], clm_wo_00))
-    
-            sim_orf = A2 * (self.Gamma_lm.T @ clm[:, np.newaxis]) # (ncc x nclm) @ (nclm x 1) => RP - (ncc x 1)
-            residual = self.rho[:, np.newaxis] - sim_orf # rho (ncc x 1) - RP (ncc x 1) => (ncc x 1)
-        
-            if self.pair_cov is not None:
-                lik_num = (residual.T @ self.pair_cov_N_inv @ residual)[0][0] # (1 x ncc) @ (ncc x ncc) @ (ncc x 1) => (1 x 1)
-                loglike = -0.5 * np.sum(lik_num + self._lik_denom)
 
-            else:
-                lik_num = (residual.ravel()**2) / (self.sig**2)
-                lik_denom = np.longdouble(2 * np.pi * (self.sig**2))
-                loglike = -0.5 * np.sum(lik_num + np.log(lik_denom))
+        elif self.mode == 'sqrt_power_basis':
+
+            A2 = 10 ** params[0]
+            blm = params[1:]
+
+            ### Convert blm amp & phase to complex blms (still no '-m'; size:l>=1,m>=0->l + 00)
+            ### b_00 = 1 is set internally here
+            blm_complex = self.sqrt_basis_helper.blm_params_2_blms(blm)
+            ### Convert complex blms to alms / complex clms (now with '-m'; size:(lmax+1)**2)
+            clm_complex = self.sqrt_basis_helper.blm_2_alm(blm_complex)
+            ### Convert complex clms / alms to real clms
+            clm_nnorm = self.clmFromAlm(clm_complex)
+            clm = (clm_nnorm/clm_nnorm[0]) * np.sqrt(4*np.pi)
+            #clm = utils.convert_blm_params_to_clm(self, [1.0, *blm])
+            
+    
+        sim_orf = A2 * (self.Gamma_lm.T @ clm[:, np.newaxis]) # (ncc x nclm) @ (nclm x 1) => RP - (ncc x 1)
+        residual = self.rho[:, np.newaxis] - sim_orf # rho (ncc x 1) - RP (ncc x 1) => (ncc x 1)
+        
+        if self.pair_cov is not None:
+            lik_num = (residual.T @ self.pair_cov_N_inv @ residual)[0][0] # (1 x ncc) @ (ncc x ncc) @ (ncc x 1) => (1 x 1)
+            loglike = -0.5 * np.sum(lik_num + self._lik_denom)
+
+        else:
+            lik_num = (residual.ravel()**2) / (self.sig**2)
+            lik_denom = np.longdouble(2 * np.pi * (self.sig**2))
+            loglike = -0.5 * np.sum(lik_num + np.log(lik_denom))
 
 
         return loglike
 
 
-    def set_ptmcmc(self, clm_prior_min=-5, clm_prior_max=5, log10_A2_prior_min=-2, log10_A2_prior_max=2, 
+    def set_ptmcmc(self, log10_A2_prior_min=-2, log10_A2_prior_max=2, clm_prior_min=-5, clm_prior_max=5, 
+                   bl0_prior_min=-50, bl0_prior_max=50, blm_amp_prior_min=0, blm_amp_prior_max=50, blm_phase_prior_min=0, blm_phase_prior_max=2*np.pi,
                    outdir='./ptmcmc', resume=False, save_anis_pta=False):
 
         """A method to return the PTMCMC sampler to perform sampling.
@@ -921,10 +950,16 @@ class anis_pta():
         This function works with 'power_basis' for now and raise ValueError if other modes are used.
 
         Args:
-            clm_prior_min (float, optional): Lower bound for clm's uniform priors. Defaults to -5.
-            clm_prior_max (float, optional): Lower bound for clm's uniform priors. Defaults to 5.
             log10_A2_prior_min (float, optional): Lower bound for log10_A2 uniform priors. Defaults to -2.
-            log10_A2_prior_max (float, optional): Lower bound for log10_A2 uniform priors. Defaults to 2.
+            log10_A2_prior_max (float, optional): Upper bound for log10_A2 uniform priors. Defaults to 2.
+            clm_prior_min (float, optional): Lower bound for clm's uniform priors. Defaults to -5.
+            clm_prior_max (float, optional): Upper bound for clm's uniform priors. Defaults to 5.
+            bl0_prior_min (float, optional): Lower bound for bl0 uniform priors. Defaults to -50.
+            bl0_prior_max (float, optional): Upper bound for bl0 uniform priors. Defaults to 50.
+            blm_amp_prior_min (float, optional): Lower bound for blm (m>=1) amplitude uniform priors. Defaults to 0.
+            blm_amp_prior_max (float, optional): Upper bound for blm (m>=1) amplitude uniform priors. Defaults to 50.
+            blm_phase_prior_min (float, optional): Lower bound for blm (m>=1) phase uniform priors. Defaults to 0.
+            blm_phase_prior_max (float, optional): Upper bound for blm (m>=1) phase uniform priors. Defaults to 2*pi.
             outdir (str, optional): The path to save the chains. Defaults to './ptmcmc'
             resume (bool, optional): Whether to resume a previous run. Defaults to False
             save_anis_pta (bool, optional): Whether to save the anisotropy object for post prcessing help. Defaults to False.
@@ -933,19 +968,37 @@ class anis_pta():
             object: The PTMCMC sampler object.
 
         Raises:
-            ValueError: If mode is not 'power_basis'.
+            ValueError: If mode is not 'power_basis' or 'sqrt_power_basis'.
         """
 
         if self.mode == 'power_basis':
             
-            log10_A_prior = parameter.Uniform(log10_A2_prior_min, log10_A2_prior_max)("log10_A2")
-            clm_prior = [parameter.Uniform(clm_prior_min, clm_prior_max)(f"c_{i}{j}") for i in range(1, self.l_max+1) for j in range(-i, i+1)]
-            self.priors = [log10_A_prior, *clm_prior]
-            self.param_names = [p.name for p in self.priors]
-            self.ndim = len(self.param_names)
+            log10_A2_prior = parameter.Uniform(log10_A2_prior_min, log10_A2_prior_max)("log10_A2")
+            clm_prior = [parameter.Uniform(clm_prior_min, clm_prior_max)(f"c_{l}{m}") for l in range(1, self.l_max+1) for m in range(-l, l+1)]
+            self.priors = [log10_A2_prior, *clm_prior]
+
+        elif self.mode == 'sqrt_power_basis':
+
+            log10_A2_prior = parameter.Uniform(log10_A2_prior_min, log10_A2_prior_max)("log10_A2")
+            blm_prior = []
+            ### b_00 = 1 is set internally
+            for l in range(1, self.blmax+1):
+                for m in range(l+1):
+                    if m == 0:
+                        blm_prior.append(parameter.Uniform(bl0_prior_min, bl0_prior_max)(f"b_{l}{m}"))
+                    else:
+                        blm_prior.append(parameter.Uniform(blm_amp_prior_min, blm_amp_prior_max)(f"b_{l}{m}_amp"))
+                        blm_prior.append(parameter.Uniform(blm_phase_prior_min, blm_phase_prior_max)(f"b_{l}{m}_phase"))
+                        
+            self.priors = [log10_A2_prior, *blm_prior]
+            
 
         else:
-            raise ValueError("Bayesian Inference is only defined for the 'power_basis' for now!")
+            raise ValueError("Bayesian Inference is only defined for the 'power_basis' and 'sqrt_power_basis' for now!")
+
+
+        self.param_names = [p.name for p in self.priors]
+        self.ndim = len(self.param_names)
         
         # dimension of parameter space
         ndim = self.ndim
@@ -1177,7 +1230,8 @@ class anis_hypermodel():
 
 class set_bilby(bilby.Likelihood):
 
-    def __init__(self, anisotropy_pta, clm_prior_min=-5, clm_prior_max=5, log10_A2_prior_min=-2, log10_A2_prior_max=2, 
+    def __init__(self, anisotropy_pta, log10_A2_prior_min=-2, log10_A2_prior_max=2, clm_prior_min=-5, clm_prior_max=5, 
+                 bl0_prior_min=-50, bl0_prior_max=50, blm_amp_prior_min=0, blm_amp_prior_max=50, blm_phase_prior_min=0, blm_phase_prior_max=2*np.pi,
                  outdir='./bilby', save_anis_pta=False):
 
         """A class to perform bilby bayesian sampling with an anisotropy pta.
@@ -1189,10 +1243,16 @@ class set_bilby(bilby.Likelihood):
         
         Attributes:
             anisotropy_pta (object, required) : The anisotropic pta object defined by MAPS.
-            clm_prior_min (float, optional): Lower bound for clm's uniform priors. Defaults to -5.
-            clm_prior_max (float, optional): Lower bound for clm's uniform priors. Defaults to 5.
             log10_A2_prior_min (float, optional): Lower bound for log10_A2 uniform priors. Defaults to -2.
-            log10_A2_prior_max (float, optional): Lower bound for log10_A2 uniform priors. Defaults to 2.
+            log10_A2_prior_max (float, optional): Upper bound for log10_A2 uniform priors. Defaults to 2.
+            clm_prior_min (float, optional): Lower bound for clm's uniform priors. Defaults to -5.
+            clm_prior_max (float, optional): Upper bound for clm's uniform priors. Defaults to 5.
+            bl0_prior_min (float, optional): Lower bound for bl0 uniform priors. Defaults to -50.
+            bl0_prior_max (float, optional): Upper bound for bl0 uniform priors. Defaults to 50.
+            blm_amp_prior_min (float, optional): Lower bound for blm (m>=1) amplitude uniform priors. Defaults to 0.
+            blm_amp_prior_max (float, optional): Upper bound for blm (m>=1) amplitude uniform priors. Defaults to 50.
+            blm_phase_prior_min (float, optional): Lower bound for blm (m>=1) phase uniform priors. Defaults to 0.
+            blm_phase_prior_max (float, optional): Upper bound for blm (m>=1) phase uniform priors. Defaults to 2*pi.
             save_anis_pta (bool, optional): Whether to save the anis_pta as a pickle.
 
         Returns:
@@ -1202,18 +1262,32 @@ class set_bilby(bilby.Likelihood):
 
         self.anisotropy_pta = anisotropy_pta
         if self.anisotropy_pta.mode == 'power_basis':
-            params = {"log10_A2": 0.0, **{f"c_{i}{j}": 0.0 for i in range(1, anisotropy_pta.l_max+1) for j in range(-i, i+1)}}
+            #params = {"log10_A2": 0.0, **{f"c_{l}{m}": 0.0 for l in range(1, anisotropy_pta.l_max+1) for m in range(-l, l+1)}}
             self.clm_prior_min = clm_prior_min
             self.clm_prior_max = clm_prior_max
+
+        elif self.anisotropy_pta.mode == 'sqrt_power_basis':
+            #params = {"log10_A2": 0.0, **{f"b_{l}{m}": 0.0 for l in range(1, anisotropy_pta.blmax+1) for m in range(l+1)}}
+            self.bl0_prior_min = bl0_prior_min
+            self.bl0_prior_max = bl0_prior_max
+            self.blm_amp_prior_min = blm_amp_prior_min
+            self.blm_amp_prior_max = blm_amp_prior_max
+            self.blm_phase_prior_min = blm_phase_prior_min
+            self.blm_phase_prior_max = blm_phase_prior_max
+            
         else:
-            raise ValueError("Bilby is currently only defined in 'power_basis'!")
+            raise ValueError("Bilby is currently only defined in 'power_basis' and 'sqrt_power_basis'!")
 
         ### The sampler takes the parameter dictionary here to evaluate likelihood
-        super().__init__(parameters=params)
+        #super().__init__(parameters=params)
         
         self.log10_A2_prior_min = log10_A2_prior_min
         self.log10_A2_prior_max = log10_A2_prior_max
         self.priors = self._priors()
+    
+        ### The sampler takes the parameter dictionary here to evaluate likelihood
+        super().__init__(parameters={key : self.priors[key].sample() for key in self.priors})
+        
         self.parameter_keys = list(self.priors.keys())
         self.ndim = len(self.parameter_keys)
         
@@ -1243,9 +1317,22 @@ class set_bilby(bilby.Likelihood):
             priors = bilby.core.prior.PriorDict()
             priors["log10_A2"] = Uniform(name="log10_A2", minimum=self.log10_A2_prior_min, maximum=self.log10_A2_prior_max)
 
-            for i in range(1, self.anisotropy_pta.l_max+1):
-                for j in range(-i, i+1):
-                    priors[f"c_{i}{j}"] = Uniform(name=f"c_{i}{j}", minimum=self.clm_prior_min, maximum=self.clm_prior_max)
+            for l in range(1, self.anisotropy_pta.l_max+1):
+                for m in range(-l, l+1):
+                    priors[f"c_{l}{m}"] = Uniform(name=f"c_{l}{m}", minimum=self.clm_prior_min, maximum=self.clm_prior_max)
+
+        elif self.anisotropy_pta.mode == 'sqrt_power_basis':
+            priors = bilby.core.prior.PriorDict()
+            priors["log10_A2"] = Uniform(name="log10_A2", minimum=self.log10_A2_prior_min, maximum=self.log10_A2_prior_max)
+
+            ### b_00 = 1 is set internally
+            for l in range(1, self.anisotropy_pta.blmax+1):
+                for m in range(l+1):
+                    if m == 0:
+                        priors[f"b_{l}{m}"] = Uniform(name=f"b_{l}{m}", minimum=self.bl0_prior_min, maximum=self.bl0_prior_max)
+                    else:
+                        priors[f"b_{l}{m}_amp"] = Uniform(name=f"b_{l}{m}_amp", minimum=self.blm_amp_prior_min, maximum=self.blm_amp_prior_max)
+                        priors[f"b_{l}{m}_phase"] = Uniform(name=f"b_{l}{m}_phase", minimum=self.blm_phase_prior_min, maximum=self.blm_phase_prior_max)
 
         return priors
 
@@ -1268,18 +1355,34 @@ class set_bilby(bilby.Likelihood):
             clm_00 = np.sqrt(4*np.pi)
             clm_wo_00 = params[1:]
             clm = np.concatenate(([clm_00], clm_wo_00))
-    
-            sim_orf = A2 * (self.anisotropy_pta.Gamma_lm.T @ clm[:, np.newaxis]) # (ncc x nclm) @ (nclm x 1) => RP - (ncc x 1)
-            residual = self.anisotropy_pta.rho[:, np.newaxis] - sim_orf # rho (ncc x 1) - RP (ncc x 1) => (ncc x 1)
-        
-            if self.anisotropy_pta.pair_cov is not None:
-                lik_num = (residual.T @ self.anisotropy_pta.pair_cov_N_inv @ residual)[0][0] # (1 x ncc) @ (ncc x ncc) @ (ncc x 1) => (1 x 1)
-                loglike = -0.5 * np.sum(lik_num + self.anisotropy_pta._lik_denom)
 
-            else:
-                lik_num = (residual.ravel()**2) / (self.anisotropy_pta.sig**2)
-                lik_denom = np.longdouble(2 * np.pi * (self.anisotropy_pta.sig**2))
-                loglike = -0.5 * np.sum(lik_num + np.log(lik_denom))
+        elif self.anisotropy_pta.mode == 'sqrt_power_basis':
+
+            params = np.array([self.parameters[key] for key in self.parameter_keys])
+            A2 = 10 ** params[0]
+            blm = params[1:]
+
+            ### Convert blm amp & phase to complex blms (still no '-m'; size:l>=1,m>=0->l + 00)
+            ### b_00 = 1 is set internally here
+            blm_complex = self.anisotropy_pta.sqrt_basis_helper.blm_params_2_blms(blm)
+            ### Convert complex blms to alms / complex clms (now with '-m'; size:(lmax+1)**2)
+            clm_complex = self.anisotropy_pta.sqrt_basis_helper.blm_2_alm(blm_complex)
+            ### Convert complex clms / alms to real clms
+            clm_nnorm = self.anisotropy_pta.clmFromAlm(clm_complex)
+            clm = (clm_nnorm/clm_nnorm[0]) * np.sqrt(4*np.pi)
+            #clm = utils.convert_blm_params_to_clm(self.anisotropy_pta, [1.0, *blm])
+    
+        sim_orf = A2 * (self.anisotropy_pta.Gamma_lm.T @ clm[:, np.newaxis]) # (ncc x nclm) @ (nclm x 1) => RP - (ncc x 1)
+        residual = self.anisotropy_pta.rho[:, np.newaxis] - sim_orf # rho (ncc x 1) - RP (ncc x 1) => (ncc x 1)
+        
+        if self.anisotropy_pta.pair_cov is not None:
+            lik_num = (residual.T @ self.anisotropy_pta.pair_cov_N_inv @ residual)[0][0] # (1 x ncc) @ (ncc x ncc) @ (ncc x 1) => (1 x 1)
+            loglike = -0.5 * np.sum(lik_num + self.anisotropy_pta._lik_denom)
+
+        else:
+            lik_num = (residual.ravel()**2) / (self.anisotropy_pta.sig**2)
+            lik_denom = np.longdouble(2 * np.pi * (self.anisotropy_pta.sig**2))
+            loglike = -0.5 * np.sum(lik_num + np.log(lik_denom))
 
 
         return loglike
