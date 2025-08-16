@@ -275,7 +275,7 @@ def posterior_sampled_Cl_skymap(anis_pta, chain, burn = 0, n_draws = 100):
         else:
             clms = convert_blm_params_to_clm(anis_pta, sub_chain.iloc[ii, 1:])
 
-        Cl = angular_power_spectrum(anis_pta, clms)
+        Cl = angular_power_spectrum(clms)
 
         if anis_pta.include_pta_monopole:
             pow_maps[ii] = (10 ** sub_chain.iloc[ii, 1]) * ac.mapFromClm(clms, nside = anis_pta.nside)
@@ -325,7 +325,7 @@ def woodbury_inverse(A, U, C, V, ret_cond = False):
 
 # A handy function to do some anisotropy injection stuff
 def inject_anisotropy(anis_pta, method='power_basis', sim_clm_wo_00=None, sim_log10_A2=0.0, sim_sig=0.01, pair_cov=False, seed=42, 
-                      sim_power=50, sim_lon=270, sim_lat=45, sim_pixel_radius=10, return_vals=False):
+                      h=None, sim_power=50, sim_lon=270, sim_lat=45, sim_pixel_radius=10, add_rand_noise=False, return_vals=False):
 
     """ A handy function to create a sky with injected anisotropy. 
     This function upon completion creates 'injected' instances of the anis_pta object.
@@ -351,6 +351,7 @@ def inject_anisotropy(anis_pta, method='power_basis', sim_clm_wo_00=None, sim_lo
             Defaults to 270, 45 respectively.
         sim_pixel_radius (int or float): The size of the pixel injection for 'pixel' method. 
             Defaults to 10.
+        add_rand_noise (bool, optional): Whether to add random gaussian noise in the pixel method.
         return_vals (bool, optional): Whether to return a tuple of injected parameters/power, rho and sig. 
             Defaults to None.
 
@@ -393,15 +394,20 @@ def inject_anisotropy(anis_pta, method='power_basis', sim_clm_wo_00=None, sim_lo
             inj_pair_cov = None
         inj_sig = np.repeat(sim_sig, repeats=anis_pta.npairs)
 
-        # Simulate rho - Shift by mean and scale by std
-        rng = nr.default_rng(seed=seed)
-        normal_dist = rng.normal(size=anis_pta.npairs)
-        inj_rho = inj_orf.reshape(anis_pta.npairs) + inj_sig*normal_dist
+        if add_rand_noise:
+            # Simulate rho - Shift by mean and scale by std
+            rng = nr.default_rng(seed=seed)
+            normal_dist = rng.normal(size=anis_pta.npairs)
+            inj_rho = inj_orf.reshape(anis_pta.npairs) + inj_sig*normal_dist
+        else:
+            inj_rho = inj_orf
 
         anis_pta.injected_params = inj_dict
         anis_pta.injected_rho = inj_rho
         anis_pta.injected_sig = inj_sig
         anis_pta.injected_pair_cov = inj_pair_cov
+
+        anis_pta.injected_power = A2_inject * ac.mapFromClm(list(inj_dict.values())[1:], nside=anis_pta.nside)
 
         if return_vals:
             return inj_dict, inj_rho, inj_sig, inj_pair_cov
@@ -411,13 +417,17 @@ def inject_anisotropy(anis_pta, method='power_basis', sim_clm_wo_00=None, sim_lo
 
         # From MAPS example
         # Simulate an isotropic background plus a hotspot
-        input_map = np.ones(anis_pta.npix)
-        vec = hp.ang2vec(sim_lon, sim_lat, lonlat=True)
-        radius = np.radians(sim_pixel_radius)
+        if h is not None:
+            input_map = h
+            
+        else:
+            input_map = np.ones(anis_pta.npix)
+            vec = hp.ang2vec(sim_lon, sim_lat, lonlat=True)
+            radius = np.radians(sim_pixel_radius)
 
-        disk_anis = hp.query_disc(nside = anis_pta.nside, vec = vec, radius = radius, inclusive = False)
+            disk_anis = hp.query_disc(nside = anis_pta.nside, vec = vec, radius = radius, inclusive = False)
     
-        input_map[disk_anis] += sim_power
+            input_map[disk_anis] += sim_power
 
         # Simulate rho
         inj_rho = anis_pta.F_mat @ input_map
