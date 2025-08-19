@@ -7,6 +7,7 @@ import pickle, healpy as hp
 import numpy.random as nr, scipy.stats as scst
 from PTMCMCSampler.PTMCMCSampler import PTSampler as ptmcmc
 from enterprise.signals import parameter
+from enterprise_extensions.sampler import get_parameter_groups
 
 from enterprise.signals import anis_coefficients as ac
 
@@ -164,6 +165,9 @@ class anis_pta():
         else:
             raise ValueError("mode must be either 'power_basis','sqrt_power_basis' or 'hybrid'")
 
+        
+        # set param_names for bayesian inference
+        self.param_names = self._set_bayesian_param_names()
         
         self.sqrt_basis_helper = CG.clebschGordan(l_max = self.l_max)
         #self.reorder, self.neg_idx, self.zero_idx, self.pos_idx = self.reorder_hp_ylm()
@@ -854,6 +858,37 @@ class anis_pta():
         return opt_params
 
 
+    def _set_bayesian_param_names(self):
+
+        
+        if self.mode == 'hybrid':
+
+            param_names = [f"log10_Apix_{i}" for i in range(self.npix)]
+        #
+        elif self.mode == 'power_basis':
+            
+            clm_params = [f"c_{l}{m}" for l in range(1, self.l_max+1) for m in range(-l, l+1)]
+            param_names = ["log10_A2", *clm_params]
+
+        elif self.mode == 'sqrt_power_basis':
+
+            blm_params = []
+            ### b_00 = 1 is set internally
+            for l in range(1, self.blmax+1):
+                for m in range(l+1):
+                    if m == 0:
+                        blm_params.append(f"b_{l}{m}")
+                    else:
+                        blm_params.append(f"b_{l}{m}_amp")
+                        blm_params.append(f"b_{l}{m}_phase")
+                        
+            param_names = ["log10_A2", *blm_params]
+
+
+        return param_names
+
+            
+
     def LogPrior(self, params):
 
         """A method to return the log-priors for the given set of parameters.
@@ -1031,7 +1066,7 @@ class anis_pta():
             raise ValueError("Select the mode compatible with MAPS!")
 
 
-        self.param_names = [p.name for p in self.priors]
+        #self.param_names = [p.name for p in self.priors]
         self.ndim = len(self.param_names)
         
         # dimension of parameter space
@@ -1116,149 +1151,283 @@ class anis_pta():
         return 1 / (2 * 6.283185346689728)
 
 
+
+
 class anis_hypermodel():
 
 
-    def __init__(self, models, log_weights = None, mode = 'sqrt_power_basis', use_physical_prior = True):
+    def __init__(self, models, log_weights = None):
 
         self.models = models
-        self.num_models = len(self.models)
-        self.mode = mode
-        self.use_physical_prior = use_physical_prior
+        self.n_models = len(self.models)
+        self.log_weights = log_weights
 
-        if log_weights is None:
-            self.log_weights = log_weights
-        else:
-            self.log_weights = np.longdouble(log_weights)
+        ### Set the instance of unique prameters in the hypermodel parameter space.
+        self.param_names, ind = np.unique(np.concatenate([["nmodel"], *[pt.param_names for pt in self.models.values()]]), 
+                                          return_index=True)
+        self.param_names = self.param_names[np.argsort(ind)].tolist()
+        self.ndim = len(self.param_names)
+        ### Also here we have nmodel index at 0.
+        
 
-        self.nside = np.max([xx.nside for xx in self.models])
+    
+    def _log_prior_by_mode(self, log10_A2_prior_min, log10_A2_prior_max, log10_Apix_prior_min, log10_Apix_prior_max, 
+                           clm_prior_min, clm_prior_max, bl0_prior_min, bl0_prior_max, 
+                           blm_amp_prior_min, blm_amp_prior_max, blm_phase_prior_min, blm_phase_prior_max):
 
-        self.ndim = np.max([xx.ndim for xx in self.models]) + 1
+        """A method to set priors and param_names for each anis_pta model. The priors set here
+        is used in the log_prior function of anis_hypermodel(). This function does not return
+        anything. It creates 'priors' and 'param_names' instances of eac of the anis_pta model
+        in self.models.
 
-        self.l_max = np.max([xx.l_max for xx in self.models])
+        This method works with all modes, 'power_basis', 'sqrt_power_basis', and 'hybrid'.
 
-        #Some configuration for spherical harmonic basis runs
-        #clm refers to normal spherical harmonic basis
-        #blm refers to sqrt power spherical harmonic basis
-        self.blmax = int(self.l_max / 2)
-        self.clm_size = (self.l_max + 1) ** 2
-        self.blm_size = hp.Alm.getsize(self.blmax)
+        """
 
+        for pt in self.models.values():
+            
+            if pt.mode == 'hybrid':
+                log10_Apix_prior = [parameter.Uniform(log10_Apix_prior_min, log10_Apix_prior_max)(f"log10_Apix_{i}") for i in range(pt.npix)]
+                pt.priors = log10_Apix_prior
+            
+            elif pt.mode == 'power_basis': 
+                log10_A2_prior = parameter.Uniform(log10_A2_prior_min, log10_A2_prior_max)("log10_A2") 
+                clm_prior = [parameter.Uniform(clm_prior_min, clm_prior_max)(f"c_{l}{m}") for l in range(1, pt.l_max+1) for m in range(-l, l+1)] 
+                pt.priors = [log10_A2_prior, *clm_prior]
 
-    def _standard_prior(self, params):
-
-        if self.mode == 'power_basis':
-            amp2 = params[0]
-            clm = params[1:]
-            maxl = int(np.sqrt(len(clm)))
-
-            if clm[0] != np.sqrt(4 * np.pi) or any(np.abs(clm[1:]) > 15) or (amp2 < np.log10(1e-5) or amp2 > np.log10(1e3)):
-                return -np.inf
-            elif self.use_physical_prior:
-                #NOTE: if using physical prior, make sure to set initial sample to isotropy
-
-                sh_map = ac.mapFromClm(clm, nside = self.nside)
-
-                if np.any(sh_map < 0):
-                    return -np.inf
-                else:
-                    return np.longdouble((1 / 10) ** (len(params) - 1))
-
-            else:
-                return np.longdouble((1 / 10) ** (len(params) - 1))
-
-        elif self.mode == 'sqrt_power_basis':
-            amp2 = params[0]
-            blm_params = params[1:]
-
-            if (amp2 < np.log10(1e-5) or amp2 > np.log10(1e3)):
-                return -np.inf
-
-            else:
-                idx = 1
-                for ll in range(self.blmax + 1):
-                    for mm in range(0, ll + 1):
-
-                        if ll == 0 and params[idx] != 1:
-                            return -np.inf #0
-
-                        if mm == 0 and (params[idx] > 5 or params[idx] < -5):
-                            return -np.inf #0
-
-                        if mm != 0 and (params[idx] > 5 or params[idx] < 0 or params[idx + 1] >= 2 * np.pi or params[idx + 1] < 0):
-                            return -np.inf #0
-
-                        if ll == 0:
-                            idx += 1
-                        elif mm == 0:
-                            idx += 1
+            elif pt.mode == 'sqrt_power_basis':
+                log10_A2_prior = parameter.Uniform(log10_A2_prior_min, log10_A2_prior_max)("log10_A2")
+                blm_prior = []
+                ### b_00 = 1 is set internally
+                for l in range(1, pt.blmax+1):
+                    for m in range(l+1):
+                        if m == 0:
+                            blm_prior.append(parameter.Uniform(bl0_prior_min, bl0_prior_max)(f"b_{l}{m}"))
                         else:
-                            idx += 2
+                            blm_prior.append(parameter.Uniform(blm_amp_prior_min, blm_amp_prior_max)(f"b_{l}{m}_amp"))
+                            blm_prior.append(parameter.Uniform(blm_phase_prior_min, blm_phase_prior_max)(f"b_{l}{m}_phase"))
+                        
+                pt.priors = [log10_A2_prior, *blm_prior]
+                
 
-                return np.longdouble((1 / 10) ** (len(params) - 1))
 
 
-    def logPrior(self, params):
+    def log_prior(self, params):
 
         nmodel = int(np.rint(params[0]))
-        #print(nmodel)
 
-        if nmodel <= -0.5 or nmodel > 0.5 * (2 * self.num_models - 1):
+        if nmodel not in self.models.keys():
             return -np.inf
+        else:
+            ### Compare the union parameters with the parameters for each model
+            ### get the index and append those params into a new list and
+            ### calculate the LogPrior.
+            lP = 0
+            for pt in self.models.values():
+                lnpr = []
+                for pn in pt.param_names:
+                    idx = self.param_names.index(pn)
+                    lnpr.append(params[idx])
 
-        return np.log(self._standard_prior(params[1:]))
+                lP += pt.LogPrior(np.array(lnpr))
+
+        return lP
 
 
-    def logLikelihood(self, params):
+    
+    def log_likelihood(self, params):
 
         nmodel = int(np.rint(params[0]))
-        #print(nmodel)
 
-        active_lnlkl = self.models[nmodel].logLikelihood(params[1: self.models[nmodel].ndim + 1])
+        # find parameters of active model
+        lnlk = []
+        for pn in self.models[nmodel].param_names:
+            idx = self.param_names.index(pn)
+            lnlk.append(params[idx])
+
+        # only active parameters enter likelihood
+        active_lnlike = self.models[nmodel].LogLikelihood(lnlk)
 
         if self.log_weights is not None:
-            active_lnlkl += self.log_weights[nmodel]
+            active_lnlike += self.log_weights[nmodel]
 
-        return active_lnlkl
+        return active_lnlike
 
 
-    def get_random_sample(self):
+    
+    def initial_sample(self):
 
-        if self.mode == 'power_basis':
+        """
+        Draw an initial sample from within the hyper-model prior space.
 
-            if self.use_physical_prior:
-                x0 = np.append(np.append(np.log10(nr.uniform(0, 30, 1)), np.array([np.sqrt(4 * np.pi)])), np.repeat(0, self.ndim - 3))
-                x0 = np.append(nr.uniform(-0.5, 0.5 + self.num_models, 1), x0)
-            else:
-                x0 = np.append(np.append(np.log10(nr.uniform(0, 30, 1)), np.array([np.sqrt(4 * np.pi)])), nr.uniform(-5, 5, self.ndim - 3))
-                x0 = np.append(nr.uniform(-0.5, 0.5 + self.num_models, 1), x0)
+        Returns:
+            object: The initial sample vector of the hyper-model prior space.
 
-        elif self.mode == 'sqrt_power_basis':
+        Raises:
+            ValueError: If used before set_ptmcmc_hypermodel().
+        """
 
-            x0 = np.full(self.ndim, 0.0)
+        if self.models[0].priors is None or self.models[0].param_names is None:
+            raise ValueError("To activate this function, first set the sampler by set_ptmcmc_hypermodel()!")
+            
 
-            x0[0] = nr.uniform(-0.5, 0.5 * (2 * self.num_models - 1), 1)
+        else:
+            ### To start get model 0 sample and param_names
+            x0 = [0.1, *[pr.sample() for pr in self.models[0].priors]]
+            #x0 = [pr.sample() for pr in self.models[0].priors]
+            uniq_params = self.models[0].param_names
 
-            x0[1] = nr.uniform(np.log10(1e-5), np.log10(30))
+            ### Now find diff params between model 0 and 1, and create a mask
+            ### by compairing model 1 params with the diff params.
+            ### Extend the initial sample list with the new (diff) ones.
+            ### Finally, update uniq_params.
+            for pt in self.models.values():
 
-            idx = 2
-            for ll in range(self.blmax + 1):
-                for mm in range(0, ll + 1):
+                diff_params = np.setdiff1d(pt.param_names, uniq_params)
+                mask = np.array([pn in diff_params for pn in pt.param_names])
 
-                    if ll == 0:
-                        x0[idx] = 1.
-                        idx += 1
+                x0.extend([ppr.sample() for ppr in np.array(pt.priors)[mask]])
 
-                    elif mm == 0:
-                        x0[idx] = 0 #nr.uniform(0, 5)
-                        idx += 1
+                uniq_params = np.union1d(pt.param_names, uniq_params)
 
-                    elif mm != 0:
-                        x0[idx] = 0 #nr.uniform(0, 5)
-                        x0[idx + 1] = 0 #nr.uniform(0, 2 * np.pi)
-                        idx += 2
 
-        return x0
+
+        return np.array(x0)
+
+
+
+    def set_ptmcmc_hypermodel(self, log10_A2_prior_min=-2, log10_A2_prior_max=2, log10_Apix_prior_min=-5, log10_Apix_prior_max=5, clm_prior_min=-5, clm_prior_max=5, 
+                             bl0_prior_min=-5, bl0_prior_max=5, blm_amp_prior_min=0, blm_amp_prior_max=5, blm_phase_prior_min=0, blm_phase_prior_max=2*np.pi, 
+                             outdir='./ptmcmc', resume=False, groups=None, save_anis_pta_hypermodel=False):
+
+        """A method to return the PTMCMC sampler to perform hyper-model sampling.
+
+        This function works with 'power_basis' for now and raise ValueError if other modes are used.
+
+        Args:
+            log10_A2_prior_min (float, optional): Lower bound for log10_A2 uniform priors. Defaults to -2.
+            log10_A2_prior_max (float, optional): Upper bound for log10_A2 uniform priors. Defaults to 2.
+            clm_prior_min (float, optional): Lower bound for clm's uniform priors. Defaults to -5.
+            clm_prior_max (float, optional): Upper bound for clm's uniform priors. Defaults to 5.
+            bl0_prior_min (float, optional): Lower bound for bl0 uniform priors. Defaults to -5.
+            bl0_prior_max (float, optional): Upper bound for bl0 uniform priors. Defaults to 5.
+            blm_amp_prior_min (float, optional): Lower bound for blm (m>=1) amplitude uniform priors. Defaults to 0.
+            blm_amp_prior_max (float, optional): Upper bound for blm (m>=1) amplitude uniform priors. Defaults to 5.
+            blm_phase_prior_min (float, optional): Lower bound for blm (m>=1) phase uniform priors. Defaults to 0.
+            blm_phase_prior_max (float, optional): Upper bound for blm (m>=1) phase uniform priors. Defaults to 2*pi.
+            outdir (str, optional): The path to save the chains. Defaults to './ptmcmc'
+            resume (bool, optional): Whether to resume a previous run. Defaults to False
+            save_anis_pta_hypermodel (bool, optional): Whether to save the anisotropy object for post prcessing help. Defaults to False.
+
+        Returns:
+            object: The PTMCMC sampler object.
+
+        Raises:
+            ValueError: If mode is not 'power_basis' or 'sqrt_power_basis'.
+        """
+
+        ### Set priors and param_names for each anis_pta model in self.models
+        self._log_prior_by_mode(log10_A2_prior_min, log10_A2_prior_max, log10_Apix_prior_min, log10_Apix_prior_max, 
+                                clm_prior_min, clm_prior_max, bl0_prior_min, bl0_prior_max, 
+                                blm_amp_prior_min, blm_amp_prior_max, blm_phase_prior_min, blm_phase_prior_max)
+
+        ### Define unique prior list to save
+        self.priors = [pr for pr in self.models[0].priors]  # start of param list
+        uniq_params = [pn for pn in self.models[0].param_names]  # which params are unique
+        for pt in self.models.values():
+            # find differences between next model and concatenation of previous
+            diff_params = np.setdiff1d(pt.param_names, uniq_params)
+            mask = np.array([pd in diff_params for pd in pt.param_names])
+            # concatenate for next loop iteration
+            uniq_params = np.union1d(pt.param_names, uniq_params)
+            # extend list of unique priors
+            self.priors.extend([ppr for ppr in np.array(pt.priors)[mask]])
+        
+        
+        # initial jump covariance matrix
+        cov = np.diag(np.ones(self.ndim) * (0.5**2))
+
+        # Get the parameter group for sampling in hypermodel
+        if groups is None:
+            groups = self.get_parameter_groups()
+
+        # intialize sampler
+        sampler = ptmcmc(self.ndim, self.log_likelihood, self.log_prior, cov, outDir=outdir, resume=resume, groups=groups)
+
+
+        # Model index distribution draw
+        print("Adding nmodel uniform distribution draws...\n")
+        sampler.addProposalToCycle(self.draw_from_nmodel_prior, 25)
+
+
+        # save paramter list
+        with open(os.path.join(outdir, "pars.txt"), "w") as f:
+            for pn in self.param_names:
+                f.write(pn + "\n")
+
+        # save list of priors
+        with open(os.path.join(outdir, "priors.txt"), "w") as f:
+            for pr in self.priors:
+                f.write(pr.__repr__() + "\n")
+
+        # save the anisotropy object
+        if save_anis_pta_hypermodel:
+            saved_priors = self.priors
+            del self.priors # cannot pickle with parameter class of enterprise.signals
+            saved_pta_priors = []
+            for pt in self.models.values():
+                saved_pta_priors.append(pt.priors)
+                del pt.priors
+            
+            with open(os.path.join(outdir, "anis_pta_hypermodel.pickle"), "wb") as file:
+                pickle.dump(self, file)
+
+            self.priors = saved_priors # reassigning the priors
+            for i,pt in enumerate(self.models.values()):
+                pt.priors = saved_pta_priors[i]
+
+            
+
+        return sampler
+        
+
+
+    def draw_from_nmodel_prior(self, params, iter, beta):
+        """
+        Model-index uniform distribution prior draw.
+        """
+
+        q = params.copy()
+
+        #idx = list(self.param_names).index("nmodel")
+        nmodel_idx = 0
+        q[nmodel_idx] = np.random.uniform(-0.5, self.n_models - 0.5)
+
+        lqxy = 0
+
+        return q, float(lqxy)
+
+
+
+    def get_parameter_groups(self):
+
+        ### First a group of the whole parameter space
+        unique_groups = [list(np.arange(0, self.ndim))]
+
+        #nmodel_idx = list(self.param_names).index("nmodel")
+        nmodel_idx = 0
+
+        ### Second a group of individual parameters excluding nmodel
+        #for idx in range(1, self.ndim):
+            #unique_groups.append([idx])
+        
+        
+        ### Lastly a group of nmodel
+        unique_groups.append([nmodel_idx])
+
+        return unique_groups
+        
+
 
 
 
