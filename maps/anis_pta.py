@@ -7,7 +7,6 @@ import pickle, healpy as hp
 import numpy.random as nr, scipy.stats as scst
 from PTMCMCSampler.PTMCMCSampler import PTSampler as ptmcmc
 from enterprise.signals import parameter
-from enterprise_extensions.sampler import get_parameter_groups
 
 from enterprise.signals import anis_coefficients as ac
 
@@ -19,10 +18,6 @@ except ImportError:
     from scipy.integrate import trapezoid as trapz
 
 import scipy.linalg as sl
-try:
-    from scipy.integrate import trapz
-except ImportError:
-    from scipy.integrate import trapezoid as trapz
 
 ### Correct back to .
 from maps import clebschGordan as CG, utils
@@ -81,7 +76,7 @@ class anis_pta():
 
     def __init__(self, psrs_theta, psrs_phi, xi = None, rho = None, sig = None, 
                  os = None, pair_cov = None, l_max = 6, nside = 2, mode = 'power_basis', 
-                 use_physical_prior = False, include_pta_monopole = False, 
+                 use_physical_prior = False, include_pta_monopole = False, activate_A2_pixel=False, 
                  pair_idx = None):
         """Constructor for the anis_pta class.
 
@@ -159,6 +154,7 @@ class anis_pta():
        
         self.use_physical_prior = bool(use_physical_prior)
         self.include_pta_monopole = bool(include_pta_monopole)
+        self.activate_A2_pixel = bool(activate_A2_pixel)
 
         if mode in ['power_basis', 'sqrt_power_basis', 'hybrid']:
             self.mode = mode
@@ -863,8 +859,12 @@ class anis_pta():
         
         if self.mode == 'hybrid':
 
-            param_names = [f"log10_Apix_{i}" for i in range(self.npix)]
-        #
+            if self.activate_A2_pixel:
+                npix_params = [f"log10_Apix_{i}" for i in range(self.npix)]
+                param_names = ["log10_A2", *npix_params]
+            else:
+                param_names = [f"log10_Apix_{i}" for i in range(self.npix)]
+        
         elif self.mode == 'power_basis':
             
             clm_params = [f"c_{l}{m}" for l in range(1, self.l_max+1) for m in range(-l, l+1)]
@@ -904,12 +904,21 @@ class anis_pta():
 
         if self.mode == 'hybrid':
 
-            log10_Apix = params if type(params) is np.ndarray else np.array(params)
-        
-            #log10_A2_pdf = self.priors[0].get_logpdf(log10_A2)
-            log10_Apix_pdf = np.sum([p.get_logpdf(c) for p,c in zip(self.priors, log10_Apix)])
+            if self.activate_A2_pixel:
+                log10_A2 = params[0]
+                log10_Apix = params[1:] if type(params[1:]) is np.ndarray else np.array(params[1:])
 
-            return log10_Apix_pdf
+                log10_A2_pdf = self.priors[0].get_logpdf(log10_A2)
+                log10_Apix_pdf = np.sum([p.get_logpdf(c) for p,c in zip(self.priors[1:], log10_Apix)])
+                
+                return log10_A2_pdf + log10_Apix_pdf
+                
+            else:
+                log10_Apix = params if type(params) is np.ndarray else np.array(params)
+                
+                log10_Apix_pdf = np.sum([p.get_logpdf(c) for p,c in zip(self.priors, log10_Apix)])
+                
+                return log10_Apix_pdf
         
         
         elif self.mode == 'power_basis':
@@ -951,7 +960,12 @@ class anis_pta():
 
         if self.mode == 'hybrid':
 
-            Apix = 10 ** params
+            if self.activate_A2_pixel:
+                A2 = 10 ** params[0]
+                Apix = 10 ** params[1:]
+            else:
+                A2 = 1.0
+                Apix = 10 ** params
             
             map_from_Apix_nnorm = Apix * np.ones(self.npix)
             pixel_area = (4*np.pi) / self.npix
@@ -960,7 +974,7 @@ class anis_pta():
             #clm_00 = np.sqrt(4*np.pi)
             #clm_nnorm = ac.clmFromMap_fast(h=map_from_Apix, lmax=self.l_max)
             #clm = (clm_nnorm / clm_nnorm[0]) * clm_00
-            sim_orf = self.F_mat @ map_from_Apix_norm
+            sim_orf = A2 * (self.F_mat @ map_from_Apix_norm)
             
 
         elif self.mode == 'power_basis':
@@ -1035,10 +1049,12 @@ class anis_pta():
 
         if self.mode == 'hybrid':
 
-            #log10_A2_prior = parameter.Uniform(log10_A2_prior_min, log10_A2_prior_max)("log10_A2")
             log10_Apix_prior = [parameter.Uniform(log10_Apix_prior_min, log10_Apix_prior_max)(f"log10_Apix_{i}") for i in range(self.npix)]
-            self.priors = log10_Apix_prior
-        
+            if self.activate_A2_pixel:
+                log10_A2_prior = parameter.Uniform(log10_A2_prior_min, log10_A2_prior_max)("log10_A2")
+                self.priors = [log10_A2_prior, *log10_Apix_prior]
+            else:
+                self.priors = log10_Apix_prior
 
         elif self.mode == 'power_basis':
             
@@ -1385,8 +1401,7 @@ class anis_hypermodel():
             self.priors = saved_priors # reassigning the priors
             for i,pt in enumerate(self.models.values()):
                 pt.priors = saved_pta_priors[i]
-
-            
+   
 
         return sampler
         
