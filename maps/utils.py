@@ -19,6 +19,9 @@ import anis_pta as ap
 from scipy.interpolate import interp1d
 from astroML.linear_model import LinearRegression
 
+import tqdm
+import random
+
 
 def invert_omega(hp_map):
     """A function to change between GW propogation direction and GW source direction.
@@ -234,19 +237,15 @@ def draw_random_sample(ip_arr, bins = 50, nsamp = 10):
     return interp_func(rn_draw)
 
 
-def posterior_sampled_Cl_skymap(anis_pta, chain, burn = 0, n_draws = 100):
-    """A function to generate posterior sampled sky maps from a chain file.
+def posterior_sampled_skymap_Cl_orf(anis_pta, data, n_draws=10):
 
-    Return collection of sky maps randomly drawn from posterior
-    given an (emcee) chain file sampling the posterior around the
-    maximum likelihood value.
+    """ A method to get a posterior sampled skymap, orf and Cl from a chain.
+    This method works with all basis.
 
     Args:
         anis_pta (anis_pta.anis_pta): The anisotropic PTA object
-        chain (pd.DataFrame): chain file with posterior samples with rows = samples, params = columns
-        burn (int, optional): burn-in length. Defaults to 0.
-        n_draws (int): number of draws from chain file to generate the posterior averaged sky map.
-            Defaults to 100.
+        data (np.ndarray): The posterior samples from the chain file of shape (npars x nsamples)
+        n_draws (int): number of draws from chain file. Defaults to 100.
 
     Returns:
         tuple: A tuple containing:
@@ -254,37 +253,55 @@ def posterior_sampled_Cl_skymap(anis_pta, chain, burn = 0, n_draws = 100):
                 to n_draws from posterior.
             Cl (np.ndarray): (n_draws x n_Cl) numpy array of C_l values corresponding 
                 to n_draws from posterior.
+            orf (np.ndarray): (n_draws x n_Cl) numpy array of C_l values corresponding 
+                to n_draws from posterior.
+
     """
 
-    chain_copy = chain.copy()
+    pow_map = np.zeros(shape=(n_draws, hp.pixelfunc.nside2npix(anis_pta.nside)))
+    Cl = np.zeros(shape=(n_draws, anis_pta.l_max+1))
+    orf = np.zeros(shape=(n_draws, anis_pta.npairs))
 
-    if anis_pta.include_pta_monopole:
-        chain_copy.insert(loc = 2, column = 'b_00', value = 1)
-    else:
-        chain_copy.insert(loc = 1, column = 'b_00', value = 1)
+    rand_idx = random.sample(population=range(data.shape[1]), k=n_draws)
 
-    sub_chain = chain_copy.sample(n = n_draws)
+    if anis_pta.mode == 'hybrid':
 
-    pow_maps = np.full((n_draws, hp.pixelfunc.nside2npix(anis_pta.nside)), 0.0)
-    post_Cl = np.full((n_draws, anis_pta.l_max + 1), 0.0)
+        for i,n in enumerate(tqdm.tqdm(rand_idx, desc='n_draw')):
+            if anis_pta.activate_A2_pixel:
+                pow_map[i] = (10**data[0][n]) * (10**data[1:, n])
+                clm_from_map = ac.clmFromMap_fast(h=pow_map[i], lmax=anis_pta.l_max)
+                orf[i] = (10**data[0][n]) * anis_pta.orf_from_clm(params=clm_from_map, 
+                                                                  include_scale=False)
+            else:
+                pow_map[i] = 10**data[:, n]
+                clm_from_map = ac.clmFromMap_fast(h=pow_map[i], lmax=anis_pta.l_max)
+                orf[i] = anis_pta.orf_from_clm(params=clm_from_map, 
+                                               include_scale=False)
 
-    for ii in range(n_draws):
+            Cl[i] = angular_power_spectrum(clm=clm_from_map)
 
-        if anis_pta.include_pta_monopole:
-            clms = convert_blm_params_to_clm(anis_pta, sub_chain.iloc[ii, 2:])
-        else:
-            clms = convert_blm_params_to_clm(anis_pta, sub_chain.iloc[ii, 1:])
+    
+    elif anis_pta.mode == 'power_basis':
+        
+        for i,n in enumerate(tqdm.tqdm(rand_idx, desc='n_draw')):
+            pow_map[i] = (10**data[0][n]) * ac.mapFromClm(clm=[np.sqrt(4*np.pi), *data[1:, n]], nside=anis_pta.nside)
+            Cl[i] = angular_power_spectrum(clm=np.array([np.sqrt(4*np.pi), *data[1:, n]]))
+            orf[i] = (10**data[0][n]) * anis_pta.orf_from_clm(params=np.array([np.sqrt(4*np.pi), *data[1:, n]]), 
+                                                              include_scale=False)
 
-        Cl = angular_power_spectrum(clms)
+    
+    elif anis_pta.mode == 'sqrt_power_basis':
+        
+        for i,n in enumerate(tqdm.tqdm(rand_idx, desc='n_draw')):
+            blm_to_clm = convert_blm_params_to_clm(anis_pta, [1.0, *data[1:, n]])
+            
+            pow_map[i] = (10**data[0][n]) * ac.mapFromClm(clm=blm_to_clm, nside=anis_pta.nside)
+            Cl[i] = angular_power_spectrum(clm=blm_to_clm)
+            orf[i] = (10**data[0][n]) * anis_pta.orf_from_clm(params=blm_to_clm, 
+                                                              include_scale=False)
 
-        if anis_pta.include_pta_monopole:
-            pow_maps[ii] = (10 ** sub_chain.iloc[ii, 1]) * ac.mapFromClm(clms, nside = anis_pta.nside)
-        else:
-            pow_maps[ii] = (10 ** sub_chain.iloc[ii, 0]) * ac.mapFromClm(clms, nside = anis_pta.nside)
-
-        post_Cl[ii] = Cl
-
-    return pow_maps, post_Cl
+    
+    return pow_map, Cl, orf
 
 
 def woodbury_inverse(A, U, C, V, ret_cond = False):
