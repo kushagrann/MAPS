@@ -76,7 +76,7 @@ class anis_pta():
 
     def __init__(self, psrs_theta, psrs_phi, xi = None, rho = None, sig = None, 
                  os = None, pair_cov = None, l_max = 6, nside = 2, mode = 'power_basis', 
-                 use_physical_prior = False, include_pta_monopole = False, activate_A2_pixel=False, 
+                 use_physical_prior = False, include_pta_monopole = False, activate_A2_pixel=False, norm_pixel=False,
                  pair_idx = None):
         """Constructor for the anis_pta class.
 
@@ -155,6 +155,7 @@ class anis_pta():
         self.use_physical_prior = bool(use_physical_prior)
         self.include_pta_monopole = bool(include_pta_monopole)
         self.activate_A2_pixel = bool(activate_A2_pixel)
+        self.norm_pixel = bool(norm_pixel)
 
         if mode in ['power_basis', 'sqrt_power_basis', 'hybrid']:
             self.mode = mode
@@ -968,8 +969,11 @@ class anis_pta():
                 Apix = 10 ** params
             
             map_from_Apix_nnorm = Apix * np.ones(self.npix)
-            pixel_area = (4*np.pi) / self.npix
-            map_from_Apix_norm = (map_from_Apix_nnorm / trapz(map_from_Apix_nnorm, dx=pixel_area)) * (4*np.pi)
+            if self.norm_pixel:
+                pixel_area = (4*np.pi) / self.npix
+                map_from_Apix_norm = (map_from_Apix_nnorm / trapz(map_from_Apix_nnorm, dx=pixel_area)) * (4*np.pi)
+            else:
+                map_from_Apix_norm = map_from_Apix_nnorm
             ### Fixing c_00 = root(4pi)
             #clm_00 = np.sqrt(4*np.pi)
             #clm_nnorm = ac.clmFromMap_fast(h=map_from_Apix, lmax=self.l_max)
@@ -1178,6 +1182,12 @@ class anis_hypermodel():
         self.n_models = len(self.models)
         self.log_weights = log_weights
 
+        self.model_names = [str(list(self.models.keys())[0]), str(list(self.models.keys())[1])]
+        
+        which_models = "Model 1 : " + self.model_names[0] + " nmodel < 0.5 ; weight = " + str(self.log_weights[0])
+        which_models += " // Model 2 : " + self.model_names[1] + " corresponding to nmodel > 0.5 ; weight = " + str(self.log_weights[1])
+        self.which_models = which_models
+
         ### Set the instance of unique prameters in the hypermodel parameter space.
         self.param_names, ind = np.unique(np.concatenate([["nmodel"], *[pt.param_names for pt in self.models.values()]]), 
                                           return_index=True)
@@ -1230,22 +1240,25 @@ class anis_hypermodel():
 
     def log_prior(self, params):
 
-        nmodel = int(np.rint(params[0]))
-
-        if nmodel not in self.models.keys():
-            return -np.inf
+        nmodel_idx = int(np.rint(params[0]))
+        if nmodel_idx == 0:
+            nmodel = self.model_names[0]
+        elif nmodel_idx == 1:
+            nmodel = self.model_names[1]
         else:
-            ### Compare the union parameters with the parameters for each model
-            ### get the index and append those params into a new list and
-            ### calculate the LogPrior.
-            lP = 0
-            for pt in self.models.values():
-                lnpr = []
-                for pn in pt.param_names:
-                    idx = self.param_names.index(pn)
-                    lnpr.append(params[idx])
+            return -np.inf
+        
+        ### Compare the union parameters with the parameters for each model
+        ### get the index and append those params into a new list and
+        ### calculate the LogPrior.
+        lP = 0
+        for pt in self.models.values():
+            lnpr = []
+            for pn in pt.param_names:
+                idx = self.param_names.index(pn)
+                lnpr.append(params[idx])
 
-                lP += pt.LogPrior(np.array(lnpr))
+            lP += pt.LogPrior(np.array(lnpr))
 
         return lP
 
@@ -1253,7 +1266,13 @@ class anis_hypermodel():
     
     def log_likelihood(self, params):
 
-        nmodel = int(np.rint(params[0]))
+        nmodel_idx = int(np.rint(params[0]))
+        if nmodel_idx == 0:
+            nmodel = self.model_names[0]
+        elif nmodel_idx == 1:
+            nmodel = self.model_names[1]
+        else:
+            return -np.inf
 
         # find parameters of active model
         lnlk = []
@@ -1265,7 +1284,7 @@ class anis_hypermodel():
         active_lnlike = self.models[nmodel].LogLikelihood(lnlk)
 
         if self.log_weights is not None:
-            active_lnlike += self.log_weights[nmodel]
+            active_lnlike += self.log_weights[nmodel_idx]
 
         return active_lnlike
 
@@ -1283,15 +1302,15 @@ class anis_hypermodel():
             ValueError: If used before set_ptmcmc_hypermodel().
         """
 
-        if self.models[0].priors is None or self.models[0].param_names is None:
+        if self.models[self.model_names[0]].priors is None or self.models[self.model_names[0]].param_names is None:
             raise ValueError("To activate this function, first set the sampler by set_ptmcmc_hypermodel()!")
             
 
         else:
             ### To start get model 0 sample and param_names
-            x0 = [0.1, *[pr.sample() for pr in self.models[0].priors]]
+            x0 = [0.1, *[pr.sample() for pr in self.models[self.model_names[0]].priors]]
             #x0 = [pr.sample() for pr in self.models[0].priors]
-            uniq_params = self.models[0].param_names
+            uniq_params = self.models[self.model_names[0]].param_names
 
             ### Now find diff params between model 0 and 1, and create a mask
             ### by compairing model 1 params with the diff params.
@@ -1342,14 +1361,14 @@ class anis_hypermodel():
             ValueError: If mode is not 'power_basis' or 'sqrt_power_basis'.
         """
 
-        ### Set priors and param_names for each anis_pta model in self.models
+        ### Set priors for each anis_pta model in self.models
         self._log_prior_by_mode(log10_A2_prior_min, log10_A2_prior_max, log10_Apix_prior_min, log10_Apix_prior_max, 
                                 clm_prior_min, clm_prior_max, bl0_prior_min, bl0_prior_max, 
                                 blm_amp_prior_min, blm_amp_prior_max, blm_phase_prior_min, blm_phase_prior_max)
 
-        ### Define unique prior list to save
-        self.priors = [pr for pr in self.models[0].priors]  # start of param list
-        uniq_params = [pn for pn in self.models[0].param_names]  # which params are unique
+        ### Define unique prior list to sample over and save
+        self.priors = [pr for pr in self.models[self.model_names[0]].priors]  # start of param list
+        uniq_params = [pn for pn in self.models[self.model_names[0]].param_names]  # which params are unique
         for pt in self.models.values():
             # find differences between next model and concatenation of previous
             diff_params = np.setdiff1d(pt.param_names, uniq_params)
@@ -1361,7 +1380,7 @@ class anis_hypermodel():
         
         
         # initial jump covariance matrix
-        cov = np.diag(np.ones(self.ndim) * (0.5**2))
+        cov = np.diag(np.ones(self.ndim) * (1**2))
 
         # Get the parameter group for sampling in hypermodel
         if groups is None:

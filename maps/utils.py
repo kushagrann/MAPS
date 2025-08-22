@@ -16,6 +16,11 @@ import scipy.linalg as sl
 import clebschGordan as CG
 import anis_pta as ap
 
+try:
+    from scipy.integrate import trapz
+except ImportError:
+    from scipy.integrate import trapezoid as trapz
+
 from scipy.interpolate import interp1d
 from astroML.linear_model import LinearRegression
 
@@ -237,7 +242,7 @@ def draw_random_sample(ip_arr, bins = 50, nsamp = 10):
     return interp_func(rn_draw)
 
 
-def posterior_sampled_skymap_Cl_orf(anis_pta, data, n_draws=10):
+def posterior_sampled_skymap_Cl_orf(anis_pta, data, n_draws=100):
 
     """ A method to get a posterior sampled skymap, orf and Cl from a chain.
     This method works with all basis.
@@ -341,7 +346,7 @@ def woodbury_inverse(A, U, C, V, ret_cond = False):
 
 
 # A handy function to do some anisotropy injection stuff
-def inject_anisotropy(anis_pta, method='power_basis', sim_clm_wo_00=None, sim_log10_A2=0.0, sim_sig=0.01, pair_cov=False, seed=42, 
+def inject_anisotropy(anis_pta, method='power_basis', sim_clms=None, sim_blms=None, sim_log10_A2=0.0, sim_sig=0.01, pair_cov=False, seed=42, 
                       h=None, sim_power=50, sim_lon=270, sim_lat=45, sim_pixel_radius=10, add_rand_noise=False, return_vals=False):
 
     """ A handy function to create a sky with injected anisotropy. 
@@ -351,9 +356,8 @@ def inject_anisotropy(anis_pta, method='power_basis', sim_clm_wo_00=None, sim_lo
         anis_pta (object) : The anis_pta instance created by MAPS.
         method (str, optional): The way of creating the inject sky. 'power_basis' or 'pixel'. 
             Defaults to 'power_basis'.
-        sim_clm_wo_00 (list or np.ndarray): The list or array of clm values to inject for 'clm' method. 
-            Should be a list/array of (clm_size - 1) length. 
-            NOTE: c_00 is fixed internally to root(4pi).
+        sim_clms (list or np.ndarray): The list or array of clm values to inject including c_00.
+        sim_blms (list or np.ndarray): The list or array of blm values to inject with amplitude and phase seperated including b_00.
         sim_log10_A2 (float): The amplitude correction to assume. Defaults to 0.0
         sim_sig (float): The cross-correlation uncertainty to assume. 
             Defaults to 0.01.
@@ -373,71 +377,26 @@ def inject_anisotropy(anis_pta, method='power_basis', sim_clm_wo_00=None, sim_lo
             Defaults to None.
 
     Returns:
-        tuple (optional): A tuple of 4 np.ndarrays containing the injected log10_A2 and clm values 
-            if method is 'power_basis' or the injected power map if method is 'pixel', 
+        tuple (optional): A tuple of 3 np.ndarrays containing the 
             injected cross-correlations, injected cross-correlation uncertainties and 
             injected pair covariance matrix (None if pair_cov=False).
             NOTE: The function also creates 'injected' instances of the anis_pta.
 
     Raises:
-        ValueError: If clm values (without c_00) not specified when method='power_basis'.
-        ValueError: If the size of sim_clm_wo_00 does not match the clm_size without c_00.
-        ValueError: If method not in ['power_basis', 'pixel'].
+        ValueError: If sim_clms not specified when method='power_basis'.
+        ValueError: If sim_clms not specified when method='power_basis'.
+        ValueError: If method not in ['pixel', 'power_basis', 'sqrt_power_basis'].
 
     """
 
-    if method == 'power_basis':
+    if method == 'pixel':
 
-        # If sim_clm not specified
-        if sim_clm_wo_00 is None:
-            raise ValueError("Specify clm values (without c_00) in sim_clm_wo_00 to do a power_basis injection!")
-        # Check if the specified clm's include c_00 or more clm_values
-        if len(sim_clm_wo_00) == anis_pta.clm_size-1:
-            # Without c_00
-            clm_construct = {f"c_{i}{j}": 0.0 for i in range(1, anis_pta.l_max+1) for j in range(-i, i+1)}
-            inj_dict = {"log10_A2": sim_log10_A2, "c_00" : np.sqrt(4*np.pi), 
-                        **{key : sim_clm_wo_00[k] for k, key in enumerate(clm_construct)}}
-        else:
-            raise ValueError("The specified clm values either include c_00 or does not match the clm_size specified by l_max in anis_pta.")
-        # A numpy array to work with
-        inj_arr = np.array([inj_dict[i] for i in inj_dict])
-        A2_inject = 10 ** inj_arr[0]
-
-        inj_orf = A2_inject * (anis_pta.Gamma_lm.T @ inj_arr[1:, np.newaxis])
-        # Simulate sig
-        if pair_cov:
-            inj_pair_cov = np.diag(np.repeat(sim_sig, repeats=anis_pta.npairs))
-        else:
-            inj_pair_cov = None
-        inj_sig = np.repeat(sim_sig, repeats=anis_pta.npairs)
-
-        if add_rand_noise:
-            # Simulate rho - Shift by mean and scale by std
-            rng = nr.default_rng(seed=seed)
-            normal_dist = rng.normal(size=anis_pta.npairs)
-            inj_rho = inj_orf.reshape(anis_pta.npairs) + inj_sig*normal_dist
-        else:
-            inj_rho = inj_orf
-
-        anis_pta.injected_params = inj_dict
-        anis_pta.injected_rho = inj_rho
-        anis_pta.injected_sig = inj_sig
-        anis_pta.injected_pair_cov = inj_pair_cov
-
-        anis_pta.injected_power = A2_inject * ac.mapFromClm(list(inj_dict.values())[1:], nside=anis_pta.nside)
-
-        if return_vals:
-            return inj_dict, inj_rho, inj_sig, inj_pair_cov
-
-
-    elif method == 'pixel':
-
-        # From MAPS example
-        # Simulate an isotropic background plus a hotspot
         if h is not None:
-            input_map = h
+            input_map = h if type(h) is np.ndarray else np.array(h)
             
         else:
+            # From MAPS example
+            # Simulate an isotropic background plus a hotspot
             input_map = np.ones(anis_pta.npix)
             vec = hp.ang2vec(sim_lon, sim_lat, lonlat=True)
             radius = np.radians(sim_pixel_radius)
@@ -446,24 +405,79 @@ def inject_anisotropy(anis_pta, method='power_basis', sim_clm_wo_00=None, sim_lo
     
             input_map[disk_anis] += sim_power
 
+        if anis_pta.norm_pixel:
+            pixel_area = (4*np.pi) / anis_pta.npix
+            input_map = (input_map / trapz(input_map, dx=pixel_area)) * (4*np.pi)
+
         # Simulate rho
-        inj_rho = anis_pta.F_mat @ input_map
-        # Simulate sig
-        if pair_cov:
-            inj_pair_cov = np.diag(np.repeat(sim_sig, repeats=anis_pta.npairs))
+        if anis_pta.activate_A2_pixel:
+            sim_orf = (10**sim_log10_A2) * (anis_pta.F_mat @ input_map)
         else:
-            inj_pair_cov = None
-        inj_sig = np.repeat(sim_sig, repeats=anis_pta.npairs)
+            sim_orf = anis_pta.F_mat @ input_map
 
-        anis_pta.injected_power = input_map
-        anis_pta.injected_rho = inj_rho
-        anis_pta.injected_sig = inj_sig
-        anis_pta.injected_pair_cov = inj_pair_cov
+        input_clms = ac.clmFromMap_fast(h=input_map, lmax=anis_pta.l_max)
+            
 
-        if return_vals:
-            return input_map, inj_rho, inj_sig, inj_pair_cov
+    elif method == 'power_basis':
+
+        # If sim_clm not specified
+        if sim_clms is None:
+            raise ValueError("Specify clm values in sim_clms to do a power_basis injection!")
+
+        input_clms = sim_clms if type(sim_clms) is np.ndarray else np.array(sim_clms)
+        sim_orf = (10**sim_log10_A2) * (anis_pta.Gamma_lm.T @ input_clms)
+
+        input_map = (10**sim_log10_A2) * ac.mapFromClm(input_clms, nside=anis_pta.nside)
+
+
+    elif method == 'sqrt_power_basis':
+
+        # If sim_clm not specified
+        if sim_blms is None:
+            raise ValueError("Specify blm values in sim_clms to do a sqrt_power_basis injection!")        
+        
+        input_blms = sim_blms if type(sim_blms) is np.ndarray else np.array(sim_blms)
+        ### Convert blm amp & phase to complex blms (still no '-m'; size:l>=1,m>=0->l + 00) b_00 is set internally here
+        ### Convert complex blms to alms / complex clms (now with '-m'; size:(lmax+1)**2)
+        ### Convert complex clms / alms to real clms and normalize to c_00=root(4pi)
+        input_clms = convert_blm_params_to_clm(anis_pta, input_blms) # need to pass b_00 here
+        sim_orf = (10**sim_log10_A2) * (anis_pta.Gamma_lm.T @ input_clms)#[:, np.newaxis]) # (ncc x nclm) @ (nclm x 1) => RP - (ncc x 1)
+
+        input_map = (10**sim_log10_A2) * ac.mapFromClm(input_clms, nside=anis_pta.nside)
 
 
     else:
-        raise ValueError("method can only accept 'power_basis' or 'pixel'!")
+        raise ValueError("method can only accept 'pixel', 'power_basis' or 'sqrt_power_basis'!")
+
+
+    # Simulate sig
+    inj_sig = np.repeat(sim_sig, repeats=anis_pta.npairs)
+        
+    # Add random noise if specified
+    if add_rand_noise:
+        # Simulate rho - Shift by mean and scale by std
+        rng = nr.default_rng(seed=seed)
+        normal_dist = rng.normal(size=anis_pta.npairs)
+        inj_rho = sim_orf.reshape(anis_pta.npairs) + sim_sig*normal_dist
+    else:
+        inj_rho = sim_orf
+
+    if pair_cov:
+        inj_pair_cov = np.diag(np.repeat(sim_sig, repeats=anis_pta.npairs))
+    else:
+        inj_pair_cov = None
+
+    
+    anis_pta.injected_rho = inj_rho
+    anis_pta.injected_sig = inj_sig
+    anis_pta.injected_pair_cov = inj_pair_cov
+
+    anis_pta.injected_clms = input_clms
+    anis_pta.injected_power = input_map
+    anis_pta.injected_Cl = angular_power_spectrum(clm=anis_pta.injected_clms)
+    
+    
+    if return_vals:
+        return inj_rho, inj_sig, inj_pair_cov
+    
 
