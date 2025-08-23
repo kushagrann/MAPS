@@ -347,7 +347,8 @@ def woodbury_inverse(A, U, C, V, ret_cond = False):
 
 # A handy function to do some anisotropy injection stuff
 def inject_anisotropy(anis_pta, method='power_basis', sim_clms=None, sim_blms=None, sim_log10_A2=0.0, sim_sig=0.01, pair_cov=False, seed=42, 
-                      h=None, sim_power=50, sim_lon=270, sim_lat=45, sim_pixel_radius=10, add_rand_noise=False, return_vals=False):
+                      h=None, sim_power=50, sim_lon=270, sim_lat=45, sim_pixel_radius=10, include_A2_pixel=False, norm_pixel=False, 
+                      add_rand_noise=False, return_vals=False):
 
     """ A handy function to create a sky with injected anisotropy. 
     This function upon completion creates 'injected' instances of the anis_pta object.
@@ -405,12 +406,12 @@ def inject_anisotropy(anis_pta, method='power_basis', sim_clms=None, sim_blms=No
     
             input_map[disk_anis] += sim_power
 
-        if anis_pta.norm_pixel:
+        if norm_pixel:
             pixel_area = (4*np.pi) / anis_pta.npix
             input_map = (input_map / trapz(input_map, dx=pixel_area)) * (4*np.pi)
 
         # Simulate rho
-        if anis_pta.activate_A2_pixel:
+        if include_A2_pixel:
             sim_orf = (10**sim_log10_A2) * (anis_pta.F_mat @ input_map)
         else:
             sim_orf = anis_pta.F_mat @ input_map

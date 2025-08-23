@@ -76,7 +76,7 @@ class anis_pta():
 
     def __init__(self, psrs_theta, psrs_phi, xi = None, rho = None, sig = None, 
                  os = None, pair_cov = None, l_max = 6, nside = 2, mode = 'power_basis', 
-                 use_physical_prior = False, include_pta_monopole = False, include_A2_pixel=False 
+                 use_physical_prior = False, include_pta_monopole = False, include_A2_pixel=False, 
                  pair_idx = None):
         """Constructor for the anis_pta class.
 
