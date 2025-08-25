@@ -1179,8 +1179,12 @@ class anis_hypermodel():
 
         self.model_names = [str(list(self.models.keys())[0]), str(list(self.models.keys())[1])]
         
-        which_models = "Model 1 : " + self.model_names[0] + " nmodel < 0.5 ; weight = " + str(self.log_weights[0])
-        which_models += " // Model 2 : " + self.model_names[1] + " corresponding to nmodel > 0.5 ; weight = " + str(self.log_weights[1])
+        which_models = "Model 1 : " + self.model_names[0] + " nmodel < 0.5"
+        if self.log_weights is not None:
+            which_models += " ; weight = " + str(self.log_weights[0])
+        which_models += " // Model 2 : " + self.model_names[1] + " corresponding to nmodel > 0.5"
+        if self.log_weights is not None:
+            which_models += " ; weight = " + str(self.log_weights[1])
         self.which_models = which_models
 
         ### Set the instance of unique prameters in the hypermodel parameter space.
@@ -1435,7 +1439,7 @@ class anis_hypermodel():
         q = params.copy()
 
         #idx = list(self.param_names).index("nmodel")
-        nmodel_idx = 0
+        nmodel_idx = list(self.param_names).index("nmodel")
         q[nmodel_idx] = np.random.uniform(-0.5, self.n_models - 0.5)
 
         lqxy = 0
@@ -1447,10 +1451,10 @@ class anis_hypermodel():
     def get_parameter_groups(self):
 
         ### First a group of the whole parameter space
-        unique_groups = [list(np.arange(0, self.ndim))]
+        unique_groups = [list(np.arange(1, self.ndim))]
 
-        #nmodel_idx = list(self.param_names).index("nmodel")
-        nmodel_idx = 0
+        nmodel_idx = list(self.param_names).index("nmodel")
+        #nmodel_idx = 0
 
         ### Second a group of individual parameters excluding nmodel
         #for idx in range(1, self.ndim):
