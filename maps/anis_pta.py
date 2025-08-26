@@ -1081,17 +1081,27 @@ class anis_pta():
             raise ValueError("Select the mode compatible with MAPS!")
 
 
-        #self.param_names = [p.name for p in self.priors]
-        self.ndim = len(self.param_names)
-        
         # dimension of parameter space
-        ndim = self.ndim
+        self.ndim = len(self.param_names)
 
         # initial jump covariance matrix
-        cov = np.diag(np.ones(ndim) * (0.1**2))
+        if os.path.exists(outdir + "/cov.npy") and resume:
+            cov = np.load(outdir + "/cov.npy")
+
+            # check that the one we load is the same shape as our data
+            cov_new = np.diag(np.ones(self.ndim) * 0.1**2)
+            if cov.shape != cov_new.shape:
+                msg = "The covariance matrix (cov.npy) in the output folder is "
+                msg += "the wrong shape for the parameters given. "
+                msg += "Start with a different output directory or "
+                msg += "change resume to False to overwrite the run that exists."
+
+                raise ValueError(msg)
+        else:
+            cov = np.diag(np.ones(self.ndim) * 0.1**2)
 
         # intialize sampler
-        sampler = ptmcmc(ndim, self.LogLikelihood, self.LogPrior, cov, outDir=outdir, resume=resume)
+        sampler = ptmcmc(self.ndim, self.LogLikelihood, self.LogPrior, cov, outDir=outdir, resume=resume)
 
 
         # save paramter list
@@ -1385,7 +1395,20 @@ class anis_hypermodel():
         
         
         # initial jump covariance matrix
-        cov = np.diag(np.ones(self.ndim) * (1.0**2))
+        if os.path.exists(outdir + "/cov.npy") and resume:
+            cov = np.load(outdir + "/cov.npy")
+
+            # check that the one we load is the same shape as our data
+            cov_new = np.diag(np.ones(self.ndim) * 1.0**2)
+            if cov.shape != cov_new.shape:
+                msg = "The covariance matrix (cov.npy) in the output folder is "
+                msg += "the wrong shape for the parameters given. "
+                msg += "Start with a different output directory or "
+                msg += "change resume to False to overwrite the run that exists."
+
+                raise ValueError(msg)
+        else:
+            cov = np.diag(np.ones(self.ndim) * 1.0**2)
 
         # Get the parameter group for sampling in hypermodel
         if groups is None:
@@ -1451,7 +1474,18 @@ class anis_hypermodel():
     def get_parameter_groups(self):
 
         ### First a group of the whole parameter space
-        unique_groups = [list(np.arange(1, self.ndim))]
+        groups = [list(np.arange(1, self.ndim))]
+
+        ### Now grouping per pta parameters
+        for n in self.model_names:
+            groups_per_pta = []
+            for p in self.models[n].param_names:
+                groups_per_pta.append(self.param_names.index(p))
+            # check if some groups are same
+            if groups_per_pta in groups:
+                continue
+            else:
+                groups.append(groups_per_pta)
 
         nmodel_idx = list(self.param_names).index("nmodel")
         #nmodel_idx = 0
@@ -1462,9 +1496,9 @@ class anis_hypermodel():
         
         
         ### Lastly a group of nmodel
-        unique_groups.append([nmodel_idx])
+        groups.append([nmodel_idx])
 
-        return unique_groups
+        return groups
         
 
 
