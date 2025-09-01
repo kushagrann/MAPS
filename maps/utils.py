@@ -309,6 +309,74 @@ def posterior_sampled_skymap_Cl_orf(anis_pta, data, n_draws=100):
     return pow_map, Cl, orf
 
 
+
+def bootstrap_1d(core, param, burn=0, realizations=1000, seed=316):
+    """
+    A handy function to get boostrapped samples of a parameter's posterior samples.
+
+    Args:
+        core (object) : A la_forge.core.Core object of the chain.
+        param (str) : The parameter name whose bootstrapped samples to compute.
+        burn (int, optional) : No. of samples to be treated as burn-in. Note: This
+                                is explicit to burn-in done while creating la_forge.core.Core object.
+                                Default is 0.
+        realizations (int, optional): No. of realizations for bootstrapping. Default is 1000.
+
+    Returns:
+        bootstrapped (np.ndarray) : Bootstrapped samples of 'param' of shape (nrealizations x nsamples).
+
+    """ 
+    
+    rng = nr.default_rng(seed=seed)  # set up a random number generator
+    data = core.get_param(param)[burn:]
+    bootstraped = []
+
+    for n in tqdm.tqdm(range(realizations), desc='bootstrapping '+param):
+        bootstraped.append(data[rng.choice(len(data), size=len(data), replace=True)])
+    
+    return np.array(bootstraped)
+
+
+
+def get_BF_dist_hypermodel(pta_anis_hypermodel, core, burn=0, realizations=1000, seed=316):
+    """
+    A handy function to get Bayes' Factor distribution for hypermodel using 'nmodel' parameter.
+    This also re-weights the BF if pta_anis.log_weights is not None. Note that this function should
+    be used after checking for proper mixing of 'nmodel' from its traceplot.
+
+    Args:
+        pta_anis_hypermodel (anis_pta.anis_hypermodel) : The anis_pta hypermodel object used for inference.
+        core (object) : A la_forge.core.Core object of the chain.
+        burn (int, optional) : No. of samples to be treated as burn-in. Note: This
+                                is explicit to burn-in done while creating la_forge.core.Core object.
+                                Default is 0.
+        realizations (int, optional): No. of realizations for bootstrapping. Default is 1000.
+
+    Returns:
+        A dictionary : With key denoting which model/which model. Values corresponding to the BF distribution 
+                    including re-weighting of shape (nrealizations).
+
+    """
+    
+    bootstrapped_nmodel = bootstrap_1d(core, 'nmodel', burn, realizations, seed)
+
+    bf_dist = np.zeros(realizations)
+    for r in tqdm.tqdm(range(realizations), desc='Calc. BF dist.'):
+        bf_dist[r] = (len(np.where((bootstrapped_nmodel[r, :] > 0.5) & (bootstrapped_nmodel[r, :] <= 1.5))[0]) / 
+                       len(np.where((bootstrapped_nmodel[r, :] > -0.5) & (bootstrapped_nmodel[r, :] <= 0.5))[0]))
+
+    if pta_anis_hypermodel.log_weights is not None:
+        
+        lw_0 = np.exp(float(pta_anis_hypermodel.log_weights[0]))
+        lw_1 = np.exp(float(pta_anis_hypermodel.log_weights[1]))
+        lw = lw_0 / lw_1
+        return {pta_anis_hypermodel.model_names[1]+'/'+pta_anis_hypermodel.model_names[0] : bf_dist * lw}
+    
+    else:
+        return {pta_anis_hypermodel.model_names[1]+'/'+pta_anis_hypermodel.model_names[0] : bf_dist}
+
+
+
 def woodbury_inverse(A, U, C, V, ret_cond = False):
     """A function to compute the inverse of a matrix using the Woodbury matrix identity.
 

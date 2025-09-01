@@ -1192,7 +1192,7 @@ class anis_hypermodel():
         which_models = "Model 1 : " + self.model_names[0] + " nmodel < 0.5"
         if self.log_weights is not None:
             which_models += " ; weight = " + str(self.log_weights[0])
-        which_models += " // Model 2 : " + self.model_names[1] + " corresponding to nmodel > 0.5"
+        which_models += " // Model 2 : " + self.model_names[1] + " nmodel > 0.5"
         if self.log_weights is not None:
             which_models += " ; weight = " + str(self.log_weights[1])
         self.which_models = which_models
@@ -1282,8 +1282,10 @@ class anis_hypermodel():
         nmodel_idx = int(np.rint(params[0]))
         if nmodel_idx == 0:
             nmodel = self.model_names[0]
+            lw_idx = 0
         elif nmodel_idx == 1:
             nmodel = self.model_names[1]
+            lw_idx = 1
         else:
             return -np.inf
 
@@ -1297,7 +1299,16 @@ class anis_hypermodel():
         active_lnlike = self.models[nmodel].LogLikelihood(lnlk)
 
         if self.log_weights is not None:
-            active_lnlike += self.log_weights[nmodel_idx]
+            active_lnlike += self.log_weights[lw_idx]
+
+
+        #with open(os.path.join(self.outdir, "nmodel_in_likelihood.txt"), "a") as f:
+        #    #np.savetxt(f, np.array([nmodel_idx, nmodel, self.log_weights[nmodel_idx]]))
+        #    if self.log_weights is not None:
+        #        f.write(" ".join(map(str,[nmodel_idx, nmodel, self.log_weights[nmodel_idx]])))
+        #    else:
+        #        f.write(" ".join(map(str,[nmodel_idx, nmodel])))
+        #    f.write("\n")
 
         return active_lnlike
 
@@ -1394,6 +1405,8 @@ class anis_hypermodel():
             self.priors.extend([ppr for ppr in np.array(pt.priors)[mask]])
         
         
+        self.outdir = outdir
+        
         # initial jump covariance matrix
         if os.path.exists(outdir + "/cov.npy") and resume:
             cov = np.load(outdir + "/cov.npy")
@@ -1466,6 +1479,14 @@ class anis_hypermodel():
         q[nmodel_idx] = np.random.uniform(-0.5, self.n_models - 0.5)
 
         lqxy = 0
+
+        #with open(os.path.join(self.outdir, "samples_before_nmodel_draw.txt"), "a") as f1:
+        #    f1.write(" ".join(map(str, params)))
+        #    f1.write("\n")
+            
+        #with open(os.path.join(self.outdir, "samples_after_nmodel_draw.txt"), "a") as f2:
+        #    f2.write(" ".join(map(str, q)))
+        #    f2.write("\n")
 
         return q, float(lqxy)
 
