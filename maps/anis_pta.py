@@ -1002,7 +1002,7 @@ class anis_pta():
         residual = self.rho - sim_orf # self.rho[:, np.newaxis] -> rho (ncc x 1) - RP (ncc x 1) => (ncc x 1)
         
         if self.pair_cov is not None:
-            lik_num = (residual.T @ self.pair_cov_N_inv @ residual)[0][0] # (1 x ncc) @ (ncc x ncc) @ (ncc x 1) => (1 x 1)
+            lik_num = (residual.T @ self.pair_cov_N_inv @ residual) # (1 x ncc) @ (ncc x ncc) @ (ncc x 1) => ()
             loglike = -0.5 * np.sum(lik_num + self._lik_denom)
 
         else:
@@ -1713,7 +1713,7 @@ class set_bilby(bilby.Likelihood):
         residual = self.anisotropy_pta.rho - sim_orf # rho (ncc x 1) - RP (ncc x 1) => (ncc x 1)
         
         if self.anisotropy_pta.pair_cov is not None:
-            lik_num = (residual.T @ self.anisotropy_pta.pair_cov_N_inv @ residual)[0][0] # (1 x ncc) @ (ncc x ncc) @ (ncc x 1) => (1 x 1)
+            lik_num = (residual.T @ self.anisotropy_pta.pair_cov_N_inv @ residual) # (1 x ncc) @ (ncc x ncc) @ (ncc x 1) => ()
             loglike = -0.5 * np.sum(lik_num + self.anisotropy_pta._lik_denom)
 
         else:

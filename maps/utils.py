@@ -258,7 +258,7 @@ def posterior_sampled_skymap_Cl_orf(anis_pta, data, n_draws=100):
                 to n_draws from posterior.
             Cl (np.ndarray): (n_draws x n_Cl) numpy array of C_l values corresponding 
                 to n_draws from posterior.
-            orf (np.ndarray): (n_draws x n_Cl) numpy array of C_l values corresponding 
+            orf (np.ndarray): (n_draws x n_cc) numpy array of orf values corresponding 
                 to n_draws from posterior.
 
     """
@@ -321,6 +321,8 @@ def bootstrap_1d(core, param, burn=0, realizations=1000, seed=316):
                                 is explicit to burn-in done while creating la_forge.core.Core object.
                                 Default is 0.
         realizations (int, optional): No. of realizations for bootstrapping. Default is 1000.
+        seed (int, optional): For generating random draws of 'param' posterior samples during bootstrapping. 
+            Defaults to 316.
 
     Returns:
         bootstrapped (np.ndarray) : Bootstrapped samples of 'param' of shape (nrealizations x nsamples).
@@ -351,6 +353,8 @@ def get_BF_dist_hypermodel(pta_anis_hypermodel, core, burn=0, realizations=1000,
                                 is explicit to burn-in done while creating la_forge.core.Core object.
                                 Default is 0.
         realizations (int, optional): No. of realizations for bootstrapping. Default is 1000.
+        seed (int, optional): For generating random draws of 'nmodel' posterior samples during bootstrapping. 
+            Defaults to 316.
 
     Returns:
         A dictionary : With key denoting which model/which model. Values corresponding to the BF distribution 
@@ -414,8 +418,8 @@ def woodbury_inverse(A, U, C, V, ret_cond = False):
 
 
 # A handy function to do some anisotropy injection stuff
-def inject_anisotropy(anis_pta, method='power_basis', sim_clms=None, sim_blms=None, sim_log10_A2=0.0, sim_sig=0.01, pair_cov=False, seed=42, 
-                      h=None, sim_power=50, sim_lon=270, sim_lat=45, sim_pixel_radius=10, include_A2_pixel=False, norm_pixel=False, 
+def inject_anisotropy(anis_pta, method='power_basis', sim_clms=None, sim_blms=None, sim_log10_A2=0.0, sim_sig=0.01, pair_cov=False, seed=316, 
+                      h=None, sim_power=50, sim_theta=np.pi/2, sim_phi=3*np.pi/2, lonlat=False, sim_pixel_radius=10, include_A2_pixel=False, norm_pixel=False, 
                       add_rand_noise=False, return_vals=False):
 
     """ A handy function to create a sky with injected anisotropy. 
@@ -423,7 +427,7 @@ def inject_anisotropy(anis_pta, method='power_basis', sim_clms=None, sim_blms=No
 
     Args:
         anis_pta (object) : The anis_pta instance created by MAPS.
-        method (str, optional): The way of creating the inject sky. 'power_basis' or 'pixel'. 
+        method (str, optional): The method to use for creating the inject sky. 'power_basis' or 'pixel'. 
             Defaults to 'power_basis'.
         sim_clms (list or np.ndarray): The list or array of clm values to inject including c_00.
         sim_blms (list or np.ndarray): The list or array of blm values to inject with amplitude and phase seperated including b_00.
@@ -433,12 +437,12 @@ def inject_anisotropy(anis_pta, method='power_basis', sim_clms=None, sim_blms=No
         pair_cov (bool): Whether to return the pair covariance matrix. 
             Defaults to False.
         seed (int): The seed to be passed to numpy random number generator for 'clm' method. 
-            Defaults to 42.
-
+            Defaults to 316.
         sim_power (int ot float): The power of anisotropy to inject in the sky for 'pixel' method. 
             Defaults to 50.
-        sim_lon, sim_lat (int or float): The location of injection for 'pixel' method. 
-            Defaults to 270, 45 respectively.
+        sim_theta, sim_phi (int or float): The location of injection for 'pixel' method. 
+            Defaults to pi/2, 3pi/2 respectively.
+        lonlat (bool): Whether to consider sim_theta and sim_phi as longitude and latitude. Defaults to False.
         sim_pixel_radius (int or float): The size of the pixel injection for 'pixel' method. 
             Defaults to 10.
         add_rand_noise (bool, optional): Whether to add random gaussian noise in the pixel method.
@@ -467,7 +471,7 @@ def inject_anisotropy(anis_pta, method='power_basis', sim_clms=None, sim_blms=No
             # From MAPS example
             # Simulate an isotropic background plus a hotspot
             input_map = np.ones(anis_pta.npix)
-            vec = hp.ang2vec(sim_lon, sim_lat, lonlat=True)
+            vec = hp.ang2vec(sim_theta, sim_phi, lonlat=lonlat)
             radius = np.radians(sim_pixel_radius)
 
             disk_anis = hp.query_disc(nside = anis_pta.nside, vec = vec, radius = radius, inclusive = False)
@@ -497,6 +501,7 @@ def inject_anisotropy(anis_pta, method='power_basis', sim_clms=None, sim_blms=No
         sim_orf = (10**sim_log10_A2) * (anis_pta.Gamma_lm.T @ input_clms)
 
         input_map = (10**sim_log10_A2) * ac.mapFromClm(input_clms, nside=anis_pta.nside)
+        anis_pta.injected_clms = input_clms
 
 
     elif method == 'sqrt_power_basis':
@@ -513,6 +518,7 @@ def inject_anisotropy(anis_pta, method='power_basis', sim_clms=None, sim_blms=No
         sim_orf = (10**sim_log10_A2) * (anis_pta.Gamma_lm.T @ input_clms)#[:, np.newaxis]) # (ncc x nclm) @ (nclm x 1) => RP - (ncc x 1)
 
         input_map = (10**sim_log10_A2) * ac.mapFromClm(input_clms, nside=anis_pta.nside)
+        anis_pta.injected_blms = input_blms
 
 
     else:
@@ -541,9 +547,8 @@ def inject_anisotropy(anis_pta, method='power_basis', sim_clms=None, sim_blms=No
     anis_pta.injected_sig = inj_sig
     anis_pta.injected_pair_cov = inj_pair_cov
 
-    anis_pta.injected_clms = input_clms
     anis_pta.injected_power = input_map
-    anis_pta.injected_Cl = angular_power_spectrum(clm=anis_pta.injected_clms)
+    anis_pta.injected_Cl = angular_power_spectrum(clm=input_clms)
     
     
     if return_vals:
