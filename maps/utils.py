@@ -418,33 +418,55 @@ def woodbury_inverse(A, U, C, V, ret_cond = False):
 
 
 # A handy function to do some anisotropy injection stuff
-def inject_anisotropy(anis_pta, method='power_basis', sim_clms=None, sim_blms=None, sim_log10_A2=0.0, sim_sig=0.01, pair_cov=False, seed=316, 
+def inject_anisotropy(anis_pta, method, sim_clms=None, sim_blms=None, sim_log10_A2=0.0, sim_sig=0.01, pair_cov=False, seed=316, 
                       h=None, sim_power=50, sim_theta=np.pi/2, sim_phi=3*np.pi/2, lonlat=False, sim_pixel_radius=10, include_A2_pixel=False, norm_pixel=False, 
+                      clm_min=-3.0, clm_max=3.0, bl0_min=-3.0, bl0_max=3.0, blm_amp_min=1.0, blm_amp_max=3.0, blm_phase_min=0.5*np.pi, blm_phase_max=1.5*np.pi, 
                       add_rand_noise=False, return_vals=False):
 
-    """ A handy function to create a sky with injected anisotropy. 
-    This function upon completion creates 'injected' instances of the anis_pta object.
+    """ A handy function to create an anisotropy injected cross-correlated data. This function creates 'injected' instances of the anis_pta object.
 
     Args:
         anis_pta (object) : The anis_pta instance created by MAPS.
-        method (str, optional): The method to use for creating the inject sky. 'power_basis' or 'pixel'. 
+        method (str): The method to use for creating the inject sky. 'power_basis' or 'pixel'. 
             Defaults to 'power_basis'.
-        sim_clms (list or np.ndarray): The list or array of clm values to inject including c_00.
-        sim_blms (list or np.ndarray): The list or array of blm values to inject with amplitude and phase seperated including b_00.
-        sim_log10_A2 (float): The amplitude correction to assume. Defaults to 0.0
-        sim_sig (float): The cross-correlation uncertainty to assume. 
+        sim_clms (list or np.ndarray, optional): The list or array of clm values to inject including c_00. Randomly generated if not specified. 
+            Default is None.
+        sim_blms (list or np.ndarray, optional): The list or array of blm values to inject with amplitude and phase seperated including b_00. 
+            Randomly generated if not specified. Default is None.
+        sim_log10_A2 (float, optional): The amplitude correction to assume. Defaults to 0.0
+        sim_sig (float, optional): The cross-correlation uncertainty to assume. 
             Defaults to 0.01.
-        pair_cov (bool): Whether to return the pair covariance matrix. 
+        pair_cov (bool, optional): Whether to return the pair covariance matrix. 
             Defaults to False.
-        seed (int): The seed to be passed to numpy random number generator for 'clm' method. 
-            Defaults to 316.
-        sim_power (int ot float): The power of anisotropy to inject in the sky for 'pixel' method. 
+        seed (int, optional): The seed to be passed to numpy random number generator for 
+            creating clm's (method='power_basis' and sim_clms=None) or blm's (method='sqrt_power_basis' and sim_blms=None) 
+            or when adding random gaussian noise to cross-correlations. Defaults to 316.
+        sim_power (int ot float, optional): The power of anisotropy to inject in the sky for 'pixel' method. 
             Defaults to 50.
-        sim_theta, sim_phi (int or float): The location of injection for 'pixel' method. 
+        sim_theta, sim_phi (int or float, optional): The location of injection for 'pixel' method. 
             Defaults to pi/2, 3pi/2 respectively.
-        lonlat (bool): Whether to consider sim_theta and sim_phi as longitude and latitude. Defaults to False.
-        sim_pixel_radius (int or float): The size of the pixel injection for 'pixel' method. 
+        lonlat (bool, optional): Whether to consider sim_theta and sim_phi as longitude and latitude. Defaults to False.
+        sim_pixel_radius (int or float, optional): The size of the pixel injection for 'pixel' method. 
             Defaults to 10.
+        include_A2_pixel (bool, optional): Whether to include th amplitude correction parameter in pixel basis.
+            Default is False.
+        norm_pixel (bool, optional): Whether to normalize the pixel power-map. Default is False.
+        clm_min (float, optional): Minimum boundary for clm's to draw a random value from when method='power_basis' and 
+            sim_clms=None. Defaults to -3.0.
+        clm_max (float, optional): Maximum boundary for clm's to draw a random value from when method='power_basis' and 
+            sim_clms=None. Defaults to 3.0.
+        bl0_min (float, optional): Minimum boundary for bl0's to draw a random value from when method='sqrt_power_basis' and 
+            sim_blms=None. Defaults to -3.0.
+        bl0_max (float, optional): Maximum boundary for bl0's to draw a random value from when method='sqrt_power_basis' and 
+            sim_blms=None. Defaults to 3.0.
+        blm_amp_min (float, optional): Minimum boundary for blm amplitudes to draw a random value from when method='sqrt_power_basis' and 
+            sim_blms=None. Defaults to 1.0.
+        blm_amp_max (float, optional): Maximum boundary for blm amplitudes to draw a random value from when method='sqrt_power_basis' and 
+            sim_blms=None. Defaults to 3.0.
+        blm_phase_min (float, optional): Minimum boundary for blm phases to draw a random value from when method='sqrt_power_basis' and 
+            sim_blms=None. Defaults to 0.5*root(pi).
+        blm_phase_max (float, optional): Maximum boundary for blm phases to draw a random value from when method='sqrt_power_basis' and 
+            sim_blms=None. Defaults to 1.5*root(pi).
         add_rand_noise (bool, optional): Whether to add random gaussian noise in the pixel method.
         return_vals (bool, optional): Whether to return a tuple of injected parameters/power, rho and sig. 
             Defaults to None.
@@ -456,12 +478,12 @@ def inject_anisotropy(anis_pta, method='power_basis', sim_clms=None, sim_blms=No
             NOTE: The function also creates 'injected' instances of the anis_pta.
 
     Raises:
-        ValueError: If sim_clms not specified when method='power_basis'.
-        ValueError: If sim_clms not specified when method='power_basis'.
         ValueError: If method not in ['pixel', 'power_basis', 'sqrt_power_basis'].
 
     """
 
+    rng = nr.default_rng(seed=seed)
+    
     if method == 'pixel':
 
         if h is not None:
@@ -495,8 +517,9 @@ def inject_anisotropy(anis_pta, method='power_basis', sim_clms=None, sim_blms=No
 
         # If sim_clm not specified
         if sim_clms is None:
-            raise ValueError("Specify clm values in sim_clms to do a power_basis injection!")
-
+            sim_clms = [np.sqrt(4*np.pi), *rng.uniform(low=clm_min, high=clm_max, size=anis_pta.clm_size-1)]
+            #raise ValueError("Specify clm values in sim_clms to do a power_basis injection!")
+        
         input_clms = sim_clms if type(sim_clms) is np.ndarray else np.array(sim_clms)
         sim_orf = (10**sim_log10_A2) * (anis_pta.Gamma_lm.T @ input_clms)
 
@@ -508,7 +531,18 @@ def inject_anisotropy(anis_pta, method='power_basis', sim_clms=None, sim_blms=No
 
         # If sim_clm not specified
         if sim_blms is None:
-            raise ValueError("Specify blm values in sim_clms to do a sqrt_power_basis injection!")        
+            sim_blms = [1.0]
+            for l in range(1, anis_pta.blmax+1):
+                for m in range(l+1):
+                    ### for m=0; b_l0 can be negative
+                    if m==0:
+                        sim_blms.append(rng.uniform(low=bl0_min, high=bl0_max))
+                    else:
+                    ### for m!=0; amplitude > 0 and 0<phase<2pi
+                        sim_blms.append(rng.uniform(low=blm_amp_min, high=blm_amp_max))
+                        sim_blms.append(rng.uniform(low=blm_phase_min, high=blm_phase_max))
+                        
+            #raise ValueError("Specify blm values in sim_clms to do a sqrt_power_basis injection!")        
         
         input_blms = sim_blms if type(sim_blms) is np.ndarray else np.array(sim_blms)
         ### Convert blm amp & phase to complex blms (still no '-m'; size:l>=1,m>=0->l + 00) b_00 is set internally here
@@ -522,7 +556,7 @@ def inject_anisotropy(anis_pta, method='power_basis', sim_clms=None, sim_blms=No
 
 
     else:
-        raise ValueError("method can only accept 'pixel', 'power_basis' or 'sqrt_power_basis'!")
+        raise ValueError("Method can only accept 'pixel', 'power_basis' or 'sqrt_power_basis'!")
 
 
     # Simulate sig
@@ -531,7 +565,6 @@ def inject_anisotropy(anis_pta, method='power_basis', sim_clms=None, sim_blms=No
     # Add random noise if specified
     if add_rand_noise:
         # Simulate rho - Shift by mean and scale by std
-        rng = nr.default_rng(seed=seed)
         normal_dist = rng.normal(size=anis_pta.npairs)
         inj_rho = sim_orf.reshape(anis_pta.npairs) + sim_sig*normal_dist
     else:
