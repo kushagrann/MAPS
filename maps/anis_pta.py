@@ -3,6 +3,7 @@ import scipy.optimize as sopt
 
 import os
 import pickle, healpy as hp
+import pandas as pd
 
 import numpy.random as nr, scipy.stats as scst
 from PTMCMCSampler.PTMCMCSampler import PTSampler as ptmcmc
@@ -168,11 +169,16 @@ class anis_pta():
         self.sqrt_basis_helper = CG.clebschGordan(l_max = self.l_max)
         #self.reorder, self.neg_idx, self.zero_idx, self.pos_idx = self.reorder_hp_ylm()
 
-        if self.mode == 'power_basis':
-            self.ndim = 1 + (self.l_max + 1) ** 2
+        if self.mode == 'pixel':
+            if self.include_A2_pixel:
+                self.ndim = 1 + self.npix
+            else:
+                self.ndim = self.npix
+        elif self.mode == 'power_basis':
+            self.ndim = 1 + (self.l_max + 1) ** 2 - 1 # c_00 is fixed
         elif self.mode == 'sqrt_power_basis':
             #self.ndim = 1 + (2 * (hp.Alm.getsize(int(self.blmax)) - self.blmax))
-            self.ndim = 1 + (self.blmax + 1) ** 2
+            self.ndim = 1 + (self.blmax + 1) ** 2 - 1 # b_00 is fixed
 
         self.F_mat = self.antenna_response()
 
@@ -1014,27 +1020,43 @@ class anis_pta():
         return loglike
 
 
-    def set_ptmcmc(self, log10_A2_prior_min=-2, log10_A2_prior_max=2, log10_Apix_prior_min=-2, log10_Apix_prior_max=2, clm_prior_min=-5, clm_prior_max=5, 
+    def set_ptmcmc(self, prior_form="Uniform", log10_A2_prior_min=-2, log10_A2_prior_max=2, 
+                   log10_Apix_prior_min=-2, log10_Apix_prior_max=2, 
+                   clm_prior_min=-5, clm_prior_max=5, 
                    bl0_prior_min=-5, bl0_prior_max=5, blm_amp_prior_min=0, blm_amp_prior_max=5, blm_phase_prior_min=0, blm_phase_prior_max=2*np.pi,
+                   norm_log10_Apix_mu=0, norm_log10_Apix_sigma=1, 
+                   norm_clm_mu=0, norm_clm_sigma=1,
+                   norm_bl0_mu=0, norm_bl0_sigma=1,
+                   norm_blm_amp_mu=0, norm_blm_amp_sigma=1,
                    outdir='./ptmcmc', resume=False, save_anis_pta=False):
 
-        """A method to return the PTMCMC sampler to perform sampling.
+        """A method to return the PTMCMC sampler for MAPS to perform bayesian inference.
 
-        This function works with 'power_basis' for now and raise ValueError if other modes are used.
+        This function works with all basis in MAPS.
 
         Args:
-            log10_A2_prior_min (float, optional): Lower bound for log10_A2 uniform priors. Defaults to -2.
-            log10_A2_prior_max (float, optional): Upper bound for log10_A2 uniform priors. Defaults to 2.
-            log10_Apix_prior_min (float, optional): Lower bound for pixel uniform priors. Defaults to -2.
-            log10_Apix_prior_max (float, optional): Upper bound for pixel uniform priors. Defaults to 2.
-            clm_prior_min (float, optional): Lower bound for clm's uniform priors. Defaults to -5.
-            clm_prior_max (float, optional): Upper bound for clm's uniform priors. Defaults to 5.
-            bl0_prior_min (float, optional): Lower bound for bl0 uniform priors. Defaults to -5.
-            bl0_prior_max (float, optional): Upper bound for bl0 uniform priors. Defaults to 5.
-            blm_amp_prior_min (float, optional): Lower bound for blm (m>=1) amplitude uniform priors. Defaults to 0.
-            blm_amp_prior_max (float, optional): Upper bound for blm (m>=1) amplitude uniform priors. Defaults to 5.
-            blm_phase_prior_min (float, optional): Lower bound for blm (m>=1) phase uniform priors. Defaults to 0.
-            blm_phase_prior_max (float, optional): Upper bound for blm (m>=1) phase uniform priors. Defaults to 2*pi.
+            prior_form (str, optional): The prior distribution you wish to use. Note that this should match the available attributes 
+                of the enterprise.parameter class. Defaults to "Uniform". Only Uniform, Normal and TruncNormal is supported.
+            log10_A2_prior_min (float, optional): Lower bound for log10_A2 uniform priors. Is always a unifrom prior. Defaults to -2.
+            log10_A2_prior_max (float, optional): Upper bound for log10_A2 uniform priors. Is always a unifrom prior. Defaults to 2.
+            log10_Apix_prior_min (float, optional): Lower bound for pixel uniform priors. Used as pmin in TruncNormal. Defaults to -2.
+            log10_Apix_prior_max (float, optional): Upper bound for pixel uniform priors. Used as pmax in TruncNormal. Defaults to 2.
+            clm_prior_min (float, optional): Lower bound for clm's uniform priors. Used as pmin in TruncNormal. Defaults to -5.
+            clm_prior_max (float, optional): Upper bound for clm's uniform priors. Used as pmax in TruncNormal. Defaults to 5.
+            bl0_prior_min (float, optional): Lower bound for bl0 uniform priors. Used as pmin in TruncNormal. Defaults to -5.
+            bl0_prior_max (float, optional): Upper bound for bl0 uniform priors. Used as pmax in TruncNormal. Defaults to 5.
+            blm_amp_prior_min (float, optional): Lower bound for blm (m>=1) amplitude uniform priors. Used as pmin in TruncNormal. Defaults to 0.
+            blm_amp_prior_max (float, optional): Upper bound for blm (m>=1) amplitude uniform priors. Used as pmax in TruncNormal. Defaults to 5.
+            blm_phase_prior_min (float, optional): Lower bound for blm (m>=1) phase uniform priors. Is always a unifrom prior. Defaults to 0.
+            blm_phase_prior_max (float, optional): Upper bound for blm (m>=1) phase uniform priors. Is always a unifrom prior. Defaults to 2*pi.
+            norm_log10_Apix_mu (float, optional): mu for Normal/TruncNormal. Defaults to 0.
+            norm_log10_Apix_sigma (float, optional): sigma for Normal/TruncNormal. Defaults to 1.
+            norm_clm_mu (float, optional): mu for Normal/TruncNormal. Defaults to 0.
+            norm_clm_sigma (float, optional): sigma for Normal/TruncNormal. Defaults to 1.
+            norm_bl0_mu (float, optional): mu for Normal/TruncNormal. Defaults to 0.
+            norm_bl0_sigma (float, optional): sigma for Normal/TruncNormal. Defaults to 1.
+            norm_blm_amp_mu (float, optional): mu for Normal/TruncNormal. Defaults to 0.
+            norm_blm_amp_sigma (float, optional): sigma for Normal/TruncNormal. Defaults to 1.
             outdir (str, optional): The path to save the chains. Defaults to './ptmcmc'
             resume (bool, optional): Whether to resume a previous run. Defaults to False
             save_anis_pta (bool, optional): Whether to save the anisotropy object for post prcessing help. Defaults to False.
@@ -1043,12 +1065,63 @@ class anis_pta():
             object: The PTMCMC sampler object.
 
         Raises:
-            ValueError: If mode is not 'power_basis' or 'sqrt_power_basis'.
+            ValueError: If prior_form is not 'Uniform', 'Normal' or 'TruncNormal'.
+            ValueError: If mode is not 'power_basis', 'sqrt_power_basis' or 'pixel'.
         """
+        
+        ### Set prior class and keyword arguments.
+        if prior_form == 'Uniform':
+            ### Setting up a prior class according to prior_form
+            prior_class = getattr(parameter, prior_form)
+            
+            ### Setting up the keyword arguments of the respective prior class.
+            log10_Apix_kwargs = dict(pmin=log10_Apix_prior_min, pmax=log10_Apix_prior_max)
+            clm_kwargs = dict(pmin=clm_prior_min, pmax=clm_prior_max)
+            bl0_kwargs = dict(pmin=bl0_prior_min, pmax=bl0_prior_max)
+            
+            prior_class_blm_amp = prior_class
+            blm_amp_kwargs = dict(pmin=blm_amp_prior_min, pmax=blm_amp_prior_max)
+            #blm_phase_kwargs = dict(pmin=0, pmax=2*np.pi)
 
+        elif prior_form == 'Normal':
+            ### Setting up a prior class according to prior_form
+            prior_class = getattr(parameter, prior_form)
+            
+            ### Setting up the keyword arguments of the respective prior class.
+            log10_Apix_kwargs = dict(mu=norm_log10_Apix_mu, sigma=norm_log10_Apix_sigma)
+            clm_kwargs = dict(mu=norm_clm_mu, sigma=norm_clm_sigma)
+            bl0_kwargs = dict(mu=norm_bl0_mu, sigma=norm_bl0_sigma)
+            
+            ### Note we must have half-gaussian for blm_amp's
+            prior_class_blm_amp = getattr(parameter, 'TruncNormal')
+            blm_amp_kwargs = dict(mu=norm_blm_amp_mu, sigma=norm_blm_amp_sigma, 
+                                  pmin=blm_amp_prior_min, pmax=blm_amp_prior_max)
+        
+        elif prior_form == 'TruncNormal':
+            ### Setting up a prior class according to prior_form
+            prior_class = getattr(parameter, prior_form)
+            
+            ### Setting up the keyword arguments of the respective prior class.
+            log10_Apix_kwargs = dict(mu=norm_log10_Apix_mu, sigma=norm_log10_Apix_sigma, 
+                                     pmin=log10_Apix_prior_min, pmax=log10_Apix_prior_max)
+            clm_kwargs = dict(mu=norm_clm_mu, sigma=norm_clm_sigma, 
+                              pmin=clm_prior_min, pmax=clm_prior_max)
+            bl0_kwargs = dict(mu=norm_bl0_mu, sigma=norm_bl0_sigma, 
+                              pmin=bl0_prior_min, pmax=bl0_prior_max)
+            
+            prior_class_blm_amp = prior_class
+            blm_amp_kwargs = dict(mu=norm_blm_amp_mu, sigma=norm_blm_amp_sigma, 
+                                  pmin=blm_amp_prior_min, pmax=blm_amp_prior_max)
+            #blm_phase_kwargs = dict(pmin=0, pmax=2*np.pi)
+
+        else:
+            raise ValueError("Only 'Uniform', 'Normal' and 'TruncNormal' is currently an acceptable prior_form!")
+    
+        
+        ### Constructing the priors
         if self.mode == 'pixel':
 
-            log10_Apix_prior = [parameter.Uniform(log10_Apix_prior_min, log10_Apix_prior_max)(f"log10_Apix_{i}") for i in range(self.npix)]
+            log10_Apix_prior = [prior_class(**log10_Apix_kwargs)(f"log10_Apix_{i}") for i in range(self.npix)]
             if self.include_A2_pixel:
                 log10_A2_prior = parameter.Uniform(log10_A2_prior_min, log10_A2_prior_max)("log10_A2")
                 self.priors = [log10_A2_prior, *log10_Apix_prior]
@@ -1058,20 +1131,20 @@ class anis_pta():
         elif self.mode == 'power_basis':
             
             log10_A2_prior = parameter.Uniform(log10_A2_prior_min, log10_A2_prior_max)("log10_A2")
-            clm_prior = [parameter.Uniform(clm_prior_min, clm_prior_max)(f"c_{l}{m}") for l in range(1, self.l_max+1) for m in range(-l, l+1)]
+            clm_prior = [prior_class(**clm_kwargs)(f"c_{l}{m}") for l in range(1, self.l_max+1) for m in range(-l, l+1)]
             self.priors = [log10_A2_prior, *clm_prior]
 
         elif self.mode == 'sqrt_power_basis':
 
             log10_A2_prior = parameter.Uniform(log10_A2_prior_min, log10_A2_prior_max)("log10_A2")
             blm_prior = []
-            ### b_00 = 1 is set internally
+            ### b_00 = 1 is set internally so no need to set anything for it!
             for l in range(1, self.blmax+1):
                 for m in range(l+1):
                     if m == 0:
-                        blm_prior.append(parameter.Uniform(bl0_prior_min, bl0_prior_max)(f"b_{l}{m}"))
+                        blm_prior.append(prior_class(**bl0_kwargs)(f"b_{l}{m}"))
                     else:
-                        blm_prior.append(parameter.Uniform(blm_amp_prior_min, blm_amp_prior_max)(f"b_{l}{m}_amp"))
+                        blm_prior.append(prior_class_blm_amp(**blm_amp_kwargs)(f"b_{l}{m}_amp"))
                         blm_prior.append(parameter.Uniform(blm_phase_prior_min, blm_phase_prior_max)(f"b_{l}{m}_phase"))
                         
             self.priors = [log10_A2_prior, *blm_prior]
@@ -1128,49 +1201,6 @@ class anis_pta():
         return sampler
 
 
-
-    def get_random_sample(self):
-        """A method to get a random sample from the prior distribution.
-
-        This method works with all modes, 'power_basis', 'sqrt_power_basis', and 'hybrid'.
-
-        Returns:
-            np.ndarray: A random sample for all parameters from the prior distribution.
-        """
-
-        if self.mode == 'power_basis':
-
-            if self.use_physical_prior:
-                x0 = np.append(np.append(np.log10(nr.uniform(0, 30, 1)), np.array([np.sqrt(4 * np.pi)])), np.repeat(0, self.ndim - 2))
-            else:
-                x0 = np.append(np.append(np.log10(nr.uniform(0, 30, 1)), np.array([np.sqrt(4 * np.pi)])), nr.uniform(-5, 5, self.ndim - 2))
-
-        elif self.mode == 'sqrt_power_basis':
-
-            x0 = np.full(self.ndim, 0.0)
-
-            x0[0] = nr.uniform(np.log10(1e-5), np.log10(30))
-
-            idx = 1
-            for ll in range(self.blmax + 1):
-                for mm in range(0, ll + 1):
-
-                    if ll == 0:
-                        x0[idx] = 1.
-                        idx += 1
-
-                    elif mm == 0:
-                        x0[idx] = 0 #nr.uniform(0, 5)
-                        idx += 1
-
-                    elif mm != 0:
-                        x0[idx] = 0 #nr.uniform(0, 5)
-                        x0[idx + 1] = 0 #nr.uniform(0, 2 * np.pi)
-                        idx += 2
-
-        return x0
-
-
     def amplitude_scaling_factor(self):
         """A method to calculate the amplitude scaling factor."""
         return 1 / (2 * 6.283185346689728)
@@ -1187,15 +1217,16 @@ class anis_hypermodel():
         self.n_models = len(self.models)
         self.log_weights = log_weights
 
-        self.model_names = [str(list(self.models.keys())[0]), str(list(self.models.keys())[1])]
+        self.model_names = list(self.models.keys())
+
+        model_info = {'models': self.model_names, 
+                      'mode': [pt.mode for pt in self.models.values()], 
+                      'l_max': [pt2.l_max for pt2 in self.models.values()], 
+                      'ndim': [pt3.ndim for pt3 in self.models.values()],
+                      'log_weights': self.log_weights if self.log_weights is not None else [None]*self.n_models, 
+                      'nmodel_par_range': [list(np.array([-0.5, 0.5]) + np.array([i, i])) for i in range(self.n_models)]}
         
-        which_models = "Model 1 : " + self.model_names[0] + " nmodel < 0.5"
-        if self.log_weights is not None:
-            which_models += " ; weight = " + str(self.log_weights[0])
-        which_models += " // Model 2 : " + self.model_names[1] + " nmodel > 0.5"
-        if self.log_weights is not None:
-            which_models += " ; weight = " + str(self.log_weights[1])
-        self.which_models = which_models
+        self.models_init = pd.DataFrame(model_info)
 
         ### Set the instance of unique prameters in the hypermodel parameter space.
         self.param_names, ind = np.unique(np.concatenate([["nmodel"], *[pt.param_names for pt in self.models.values()]]), 
@@ -1254,24 +1285,23 @@ class anis_hypermodel():
     def log_prior(self, params):
 
         nmodel_idx = int(np.rint(params[0]))
-        if nmodel_idx == 0:
-            nmodel = self.model_names[0]
-        elif nmodel_idx == 1:
-            nmodel = self.model_names[1]
+        
+        if 0 <= nmodel_idx <= self.n_models-1:
+            ### Compare the union parameters with the parameters for each model
+            ### get the index and append those params into a new list and
+            ### calculate the LogPrior.
+            lP = 0
+            for pt in self.models.values():
+                lnpr = []
+                for pn in pt.param_names:
+                    idx = self.param_names.index(pn)
+                    lnpr.append(params[idx])
+
+                lP += pt.LogPrior(np.array(lnpr))
+                
         else:
             return -np.inf
         
-        ### Compare the union parameters with the parameters for each model
-        ### get the index and append those params into a new list and
-        ### calculate the LogPrior.
-        lP = 0
-        for pt in self.models.values():
-            lnpr = []
-            for pn in pt.param_names:
-                idx = self.param_names.index(pn)
-                lnpr.append(params[idx])
-
-            lP += pt.LogPrior(np.array(lnpr))
 
         return lP
 
@@ -1280,12 +1310,9 @@ class anis_hypermodel():
     def log_likelihood(self, params):
 
         nmodel_idx = int(np.rint(params[0]))
-        if nmodel_idx == 0:
-            nmodel = self.model_names[0]
-            lw_idx = 0
-        elif nmodel_idx == 1:
-            nmodel = self.model_names[1]
-            lw_idx = 1
+        if 0 <= nmodel_idx <= self.n_models-1:
+            nmodel = self.model_names[nmodel_idx]
+            lw_idx = self.model_names.index(nmodel)
         else:
             return -np.inf
 
@@ -1298,17 +1325,10 @@ class anis_hypermodel():
         # only active parameters enter likelihood
         active_lnlike = self.models[nmodel].LogLikelihood(lnlk)
 
+        # Add log_weights to the active_lnlike if specified
         if self.log_weights is not None:
             active_lnlike += self.log_weights[lw_idx]
 
-
-        #with open(os.path.join(self.outdir, "nmodel_in_likelihood.txt"), "a") as f:
-        #    #np.savetxt(f, np.array([nmodel_idx, nmodel, self.log_weights[nmodel_idx]]))
-        #    if self.log_weights is not None:
-        #        f.write(" ".join(map(str,[nmodel_idx, nmodel, self.log_weights[nmodel_idx]])))
-        #    else:
-        #        f.write(" ".join(map(str,[nmodel_idx, nmodel])))
-        #    f.write("\n")
 
         return active_lnlike
 

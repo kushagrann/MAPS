@@ -358,26 +358,53 @@ def get_BF_dist_hypermodel(pta_anis_hypermodel, core, burn=0, realizations=1000,
 
     Returns:
         A dictionary : With key denoting which model/which model. Values corresponding to the BF distribution 
-                    including re-weighting of shape (nrealizations).
+                    including re-weighting.
 
     """
     
     bootstrapped_nmodel = bootstrap_1d(core, 'nmodel', burn, realizations, seed)
 
-    bf_dist = np.zeros(realizations)
-    for r in tqdm.tqdm(range(realizations), desc='Calc. BF dist.'):
-        bf_dist[r] = (len(np.where((bootstrapped_nmodel[r, :] > 0.5) & (bootstrapped_nmodel[r, :] <= 1.5))[0]) / 
-                       len(np.where((bootstrapped_nmodel[r, :] > -0.5) & (bootstrapped_nmodel[r, :] <= 0.5))[0]))
+    nmodel_bins = [(i-0.5, i+0.5) for i in range(pta_anis_hypermodel.n_models)]
+    #bf_dist = np.zeros(realizations)
+    bf_dists = {f"{pta_anis_hypermodel.model_names[h]}/{pta_anis_hypermodel.model_names[l]}": np.zeros(realizations) 
+                for h in range(pta_anis_hypermodel.n_models) for l in range(h)}
 
-    if pta_anis_hypermodel.log_weights is not None:
-        
-        lw_0 = np.exp(float(pta_anis_hypermodel.log_weights[0]))
-        lw_1 = np.exp(float(pta_anis_hypermodel.log_weights[1]))
-        lw = lw_0 / lw_1
-        return {pta_anis_hypermodel.model_names[1]+'/'+pta_anis_hypermodel.model_names[0] : bf_dist * lw}
+    for r in tqdm.tqdm(range(realizations), desc='Calc. BF dist.'):
+        # count samples per model
+        counts = []
+        for (low, high) in nmodel_bins:
+            mask = (bootstrapped_nmodel[r, :] > low) & (bootstrapped_nmodel[r, :] <= high)
+            counts.append(np.sum(mask))
+
+        # compute BF for h/l 
+        for h in range(pta_anis_hypermodel.n_models):
+            for l in range(h):
+                key = f"{pta_anis_hypermodel.model_names[h]}/{pta_anis_hypermodel.model_names[l]}"
+                # check if model1 has 0 counts as compared to model2.
+                if counts[l] > 0:
+                    if pta_anis_hypermodel.log_weights is not None:
+                        bf_dists[key][r] = (counts[h] / counts[l]) * (np.exp(pta_anis_hypermodel.log_weights[l])/np.exp(pta_anis_hypermodel.log_weights[h]))
+                    else:
+                        bf_dists[key][r] = counts[h] / counts[l]
+                else: 
+                    np.inf
+
+    return bf_dists
+
     
-    else:
-        return {pta_anis_hypermodel.model_names[1]+'/'+pta_anis_hypermodel.model_names[0] : bf_dist}
+    #for r in tqdm.tqdm(range(realizations), desc='Calc. BF dist.'):
+    #    bf_dist[r] = (len(np.where((bootstrapped_nmodel[r, :] > 0.5) & (bootstrapped_nmodel[r, :] <= 1.5))[0]) / 
+    #                   len(np.where((bootstrapped_nmodel[r, :] > -0.5) & (bootstrapped_nmodel[r, :] <= 0.5))[0]))
+
+    #if pta_anis_hypermodel.log_weights is not None:
+        
+    #    lw_0 = np.exp(float(pta_anis_hypermodel.log_weights[0]))
+    #    lw_1 = np.exp(float(pta_anis_hypermodel.log_weights[1]))
+    #    lw = lw_0 / lw_1
+    #    return {pta_anis_hypermodel.model_names[1]+'/'+pta_anis_hypermodel.model_names[0] : bf_dist * lw}
+    
+    #else:
+    #    return {pta_anis_hypermodel.model_names[1]+'/'+pta_anis_hypermodel.model_names[0] : bf_dist}
 
 
 
