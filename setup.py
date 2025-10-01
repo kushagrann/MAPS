@@ -25,9 +25,7 @@ setup(
     # Needed to actually package something
     packages=['maps'],
     # Needed for dependencies
-    install_requires=['numpy', 'scipy', 'sympy', 'astroML', 'PTMCMCSampler', 'healpy', 'lmfit', 'bilby', 'corner'],
-    # Extra requires for bilby samplers
-    extras_require={"bb_samplers": bb_sampler_requirements},
+    install_requires=['numpy', 'scipy', 'sympy', 'astroML', 'PTMCMCSampler', 'healpy', 'lmfit', 'bilby', 'corner'] + bb_sampler_requirements,
     # *strongly* suggested for sharing
     version='0.4.2',
     # The license can be anything you like

@@ -15,8 +15,6 @@ pip install git+https://github.com/NihanPol/MAPS
 
 This has had the fewest problems and is likely the easiest way to get MAPS working.
 
-To use the Bayesian setup in MAPS, 
-
 
 ## Usage
 
