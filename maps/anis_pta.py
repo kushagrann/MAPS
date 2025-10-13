@@ -4,6 +4,7 @@ import scipy.optimize as sopt
 import os
 import pickle, healpy as hp
 import pandas as pd
+import warnings
 
 import numpy.random as nr, scipy.stats as scst
 from PTMCMCSampler.PTMCMCSampler import PTSampler as ptmcmc
@@ -76,8 +77,8 @@ class anis_pta():
 
     def __init__(self, psrs_theta, psrs_phi, xi = None, rho = None, sig = None, 
                  os = None, pair_cov = None, l_max = 6, nside = 2, mode = 'power_basis', 
-                 use_physical_prior = False, include_pta_monopole = False, include_A2_pixel=False, 
-                 pair_idx = None):
+                 use_physical_prior = False, include_pta_monopole = False, include_A2_pixel = False, 
+                 include_noise_marginalization = False, pair_idx = None):
         """Constructor for the anis_pta class.
 
         This function will construct an instance of the anis_pta class. This class
@@ -100,12 +101,14 @@ class anis_pta():
             mode (str): The mode of the spherical harmonic decomposition to use.
                 Must be 'power_basis', 'sqrt_power_basis', or 'pixel'.
             use_physical_prior (bool): Whether to use physical priors or not.
-            include_pta_monopole (bool): Whether to include the monopole term in the search.
+            include_pta_monopole (bool, optional): Whether to include the monopole term in the search.
+            include_noise_marginalization (bool, optional) : Whether to perform noise marginalization or not.
+                Gives a warning if True: Is only used in bayesian inferences.
             pair_idx (np.ndarray, optional): An array of pulsar indices for each pair [npair x 2].
 
         Raises:
             ValueError: If the lengths of psrs_theta and psrs_phi are not equal.
-            ValueError: If the length of pair_idx is not equal to the number of pulsar pairs.            
+            ValueError: If the length of pair_idx is not equal to the number of pulsar pairs.
         """
         # Pulsar positions
         self.psrs_theta = psrs_theta if type(psrs_theta) is np.ndarray else np.array(psrs_theta)
@@ -132,6 +135,11 @@ class anis_pta():
         self.rho, self.sig, self.os, self.pair_cov = None, None, None, None
         self.pair_ind_N_inv, self.pair_cov_N_inv = None, None
 
+        self.include_noise_marginalization = bool(include_noise_marginalization)
+        if self.include_noise_marginalization:
+            warnings.warn("Noise-Marginalization only works with Bayesian Inference!!")
+        
+        #NM = 1 if (rho is None or np.array(rho).ndim == 1) else np.array(rho).shape[0]
         self.set_data(rho, sig, os, pair_cov)
         
         # Check if pair_idx is valid
@@ -210,21 +218,51 @@ class anis_pta():
 
         Args:
             rho (list, optional): A list of pulsar pair correlated amplitudes (<rho> = <A^2*ORF>).
+                For NM it must be of shape [ndraws x npairs].
             sig (list, optional): A list of 1-sigma uncertaintties on rho.
+                For NM it must be of shape [ndraws x npairs].
             os (float, optional): The OS' fit A^2 value.
+                For NM it must be of shape [ndraws].
             covariance (np.ndarray, optional): The pair covariance matrix [npair x npair].
+                For NM it must be of shape [ndraws x npairs x npairs].
+
+        Raises:
+            ValueError: If the no. of noise draws doesn't match with the input of 
+                rho, sig, os and covariance.
         """
         # Read in OS and normalize cross-correlations by OS. 
         # (i.e. get <rho/OS> = <ORF>)
         self._Lt_pc, self._Lt_nopc = None, None # Reset the cholesky decompositions
 
-        if (rho is not None) and (sig is not None) and (os is not None):
-            self.os = os
-            self.rho = np.array(rho) / self.os
-            self.sig = np.array(sig) / self.os
 
-            # Set the inverse of the pair independent covariance matrix
-            self.pair_ind_N_inv = self._get_N_inv(pair_cov = False)
+        if (rho is not None) and (sig is not None) and (os is not None):
+
+            rho, sig, os = np.array(rho), np.array(sig), np.array(os)
+            
+            # Normal case without noise-marginalization
+            if not self.include_noise_marginalization:
+                self.os = os
+                self.rho = rho / self.os
+                self.sig = sig / self.os
+                # Set the inverse of the pair independent covariance matrix
+                self.pair_ind_N_inv = self._get_N_inv(pair_cov = False)
+
+            # Raise Error if NM and rho, sig or os aren't 2-d, 2-d, 1-d arrays.
+            elif self.include_noise_marginalization and (rho.ndim !=2 or sig.ndim !=2 or os.ndim !=1):
+                raise ValueError("Dimensionality mismatch! Make sure the rho, sig are 2-d arrays of shape [ndraws x npairs] " + 
+                                 "and os is of shape [ndraws]!!")
+
+            # Raise Error if NM and rho, sig or os are not 2-d, 2-d, 1-d arrays.
+            elif self.include_noise_marginalization and (rho.shape != sig.shape or os.shape[0] != rho.shape[0] or os.shape[0] != sig.shape[0]):
+                raise ValueError("The shapes of rho and sig doesn't match. Or the length of os doesn't match with no. of rows of rho and sig!! "+ 
+                                 "rho, sig must be 2-d arrays of shape [ndraws x npairs] and os of shape [ndraws]!!")
+
+            # Noise-marginalization case: scaling by os, the corresponding noise draw.
+            else:
+                self.NM = rho.shape[0]
+                self.os = os
+                self.rho = rho / self.os[:, np.newaxis] 
+                self.sig = sig / self.os[:, np.newaxis]
 
         else:
             self.rho = None
@@ -232,14 +270,32 @@ class anis_pta():
             self.os = None
 
         if covariance is not None:
-            self.pair_cov = covariance / self.os**2
             
-            # A handy attribute to be used in likelihood evaluation
-            cov_det_sign, cov_det = np.linalg.slogdet(2 * np.pi * self.pair_cov)
-            self._lik_denom = cov_det_sign*cov_det
+            covariance = np.array(covariance)
+            
+            # Normal case without noise-marginalization
+            if not self.include_noise_marginalization:
+                self.pair_cov = covariance / self.os**2
+                # A handy attribute to be used in likelihood evaluation
+                cov_det_sign, cov_det_val = np.linalg.slogdet(2 * np.pi * self.pair_cov)
+                self._lik_denom = cov_det_sign*cov_det_val
+                # Get the inverse of the pair covariance matrix
+                self.pair_cov_N_inv = self._get_N_inv(pair_cov = True)
 
-            # Get the inverse of the pair covariance matrix
-            self.pair_cov_N_inv = self._get_N_inv(pair_cov = True)
+            # Raise Error if NM and covariance is not 3-d.
+            elif self.include_noise_marginalization and (covariance.ndim != 3):
+                raise ValueError("Dimensionality mismatch! Make sure covariance is a 3-d arrays of shape [ndraws x npairs x npairs] ")
+
+            # Raise Error if NM and rho, sig or os are not 2-d, 2-d, 1-d arrays.
+            elif self.include_noise_marginalization and covaraince.shape[0] != rho.shape[0]:
+                raise ValueError("The no. of noise draws in rho, sig and os doesn't match with covariance!!")
+
+            # Noise-marginalization case: scaling by os, the corresponding noise draw.
+            else:
+                self.pair_cov = covariance / (self.os[:, np.newaxis, np.newaxis] ** 2)
+                # A handy attribute to be used in likelihood evaluation
+                cov_det_sign, cov_det_val = zip(*[np.linalg.slogdet(2 * np.pi * self.pair_cov[n]) for n in range(self.NM)])
+                self._lik_denom = np.array(cov_det_sign)*np.array(cov_det_val)
 
         else:
             self.pair_cov = None
@@ -1004,6 +1060,7 @@ class anis_pta():
             
     
         #loglike = 1.0
+        # Works even in noise-marginalization as numpy broadcasting is achieved.
         residual = self.rho - sim_orf # self.rho[:, np.newaxis] -> rho (ncc x 1) - RP (ncc x 1) => (ncc x 1)
         
         if self.pair_cov is not None:
@@ -1013,7 +1070,12 @@ class anis_pta():
         else:
             lik_num = (residual**2) / (self.sig**2) # .ravel() in residual
             lik_denom = 2 * np.pi * (self.sig**2)
-            loglike = -0.5 * np.sum(lik_num + np.log(lik_denom))
+
+            if self.include_noise_marginalization:
+                loglike_each = -0.5 * np.sum(lik_num + np.log(lik_denom), axis=1)
+                loglike = scsp.logsumexp(loglike_each) - np.log(self.NM)
+            else:
+                loglike = -0.5 * np.sum(lik_num + np.log(lik_denom))
 
 
         return loglike

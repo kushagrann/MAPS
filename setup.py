@@ -26,7 +26,7 @@ setup(
     packages=['maps'],
     # Needed for dependencies: 
     # Order -> Frequentist + Bayesian ('enterprise-pulsar' for priors in PTMCMC setup) + bilby samplers
-    install_requires=['numpy', 'scipy', 'sympy', 'astroML', 'healpy', 'lmfit'] + ['PTMCMCSampler', 'enterprise-pulsar', 'bilby', 'corner'] + bb_sampler_requirements,
+    install_requires=['numpy', 'scipy', 'sympy', 'astroML', 'healpy', 'lmfit'] + ['PTMCMCSampler', 'enterprise-pulsar', 'bilby', 'corner', 'la-forge'] + bb_sampler_requirements,
     # *strongly* suggested for sharing
     version='0.4.2',
     # The license can be anything you like
