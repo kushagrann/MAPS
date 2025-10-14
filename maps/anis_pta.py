@@ -1257,6 +1257,10 @@ class anis_pta():
                 pickle.dump(self, file)
 
             self.priors = saved_priors # reassigning the priors
+
+        # Warn for noise-marginalization
+        if self.include_noise_marginalization:
+            warnings.warn("Performing Noise-Marginalization!!")
             
 
         return sampler
