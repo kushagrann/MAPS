@@ -443,7 +443,7 @@ def woodbury_inverse(A, U, C, V, ret_cond = False):
 
 
 # A handy function to do some anisotropy injection stuff
-def inject_anisotropy(anis_pta, method, sim_clms=None, sim_blms=None, sim_log10_A2=0.0, sim_sig=0.01, pair_cov=False, NM=1, seed=316, 
+def inject_anisotropy(anis_pta, method, n_draws=1, sim_clms=None, sim_blms=None, sim_log10_A2=0.0, sim_sig=0.01, pair_cov=False, seed=316, 
                       h=None, sim_power=50, sim_theta=np.pi/2, sim_phi=3*np.pi/2, lonlat=False, sim_pixel_radius=10, include_A2_pixel=False, norm_pixel=False, 
                       clm_min=-3.0, clm_max=3.0, bl0_min=-3.0, bl0_max=3.0, blm_amp_min=1.0, blm_amp_max=3.0, blm_phase_min=0.5*np.pi, blm_phase_max=1.5*np.pi, 
                       add_rand_noise=False, return_vals=False):
@@ -454,6 +454,8 @@ def inject_anisotropy(anis_pta, method, sim_clms=None, sim_blms=None, sim_log10_
         anis_pta (object) : The anis_pta instance created by MAPS.
         method (str): The method to use for creating the inject sky. 'power_basis' or 'pixel'. 
             Defaults to 'power_basis'.
+        n_draws (int, optional): No. of noise realizations to generate when doing noise-marginalization/joint-noise-maximization tests. 
+            NM=1 denotes no noise draws. Defaults to 1.
         sim_clms (list or np.ndarray, optional): The list or array of clm values to inject including c_00. Randomly generated if not specified. 
             Default is None.
         sim_blms (list or np.ndarray, optional): The list or array of blm values to inject with amplitude and phase seperated including b_00. 
@@ -463,8 +465,6 @@ def inject_anisotropy(anis_pta, method, sim_clms=None, sim_blms=None, sim_log10_
             Defaults to 0.01.
         pair_cov (bool, optional): Whether to return the pair covariance matrix. 
             Defaults to False.
-        NM (int, optional): No. of noise realizations to generate when doing noise-marginalization tests. NM=1 denotes no noise-margination.
-            Defaults to 1.
         seed (int, optional): The seed to be passed to numpy random number generator for 
             creating clm's (method='power_basis' and sim_clms=None) or blm's (method='sqrt_power_basis' and sim_blms=None) 
             or when adding random gaussian noise to cross-correlations. Defaults to 316.
@@ -604,13 +604,14 @@ def inject_anisotropy(anis_pta, method, sim_clms=None, sim_blms=None, sim_log10_
         inj_pair_cov = None
 
     
-    NM = int(NM)
-    if anis_pta.include_noise_marginalization:
-        if NM == 1:
-            raise ValueError("NM must be greater than 1 when include_noise_marginalization flag in the pta is active!!")
-        inj_rho_nm = np.array([rng.normal(loc=rho_per_draw, scale=sim_sig, size=NM) 
+    n_draws = int(n_draws)
+    if anis_pta.n_draws > 1:
+        if n_draws == 1:
+            raise ValueError("NM must be greater than 1 when include_noise_marginalization or joint noise" + 
+                             " likelihood maximization flag in the pta is active!!")
+        inj_rho_nm = np.array([rng.normal(loc=rho_per_draw, scale=sim_sig, size=n_draws) 
                                for rho_per_draw in inj_rho]).T
-        inj_sig_nm = np.repeat(inj_sig[:, np.newaxis], NM, axis=1).T
+        inj_sig_nm = np.repeat(inj_sig[:, np.newaxis], n_draws, axis=1).T
 
         anis_pta.injected_rho = inj_rho_nm
         anis_pta.injected_sig = inj_sig_nm

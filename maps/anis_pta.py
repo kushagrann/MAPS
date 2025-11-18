@@ -75,10 +75,10 @@ class anis_pta():
         Gamma_lm (np.ndarray): The spherical harmonic basis [npair x ndim].
     """
 
-    def __init__(self, psrs_theta, psrs_phi, xi = None, rho = None, sig = None, 
+    def __init__(self, psrs_theta, psrs_phi, n_draws=1, xi = None, rho = None, sig = None, 
                  os = None, pair_cov = None, l_max = 6, nside = 2, mode = 'power_basis', 
                  use_physical_prior = False, include_pta_monopole = False, include_A2_pixel = False, 
-                 include_noise_marginalization = False, pair_idx = None):
+                 pair_idx = None):
         """Constructor for the anis_pta class.
 
         This function will construct an instance of the anis_pta class. This class
@@ -91,6 +91,8 @@ class anis_pta():
         Args:
             psrs_theta (np.ndarray): An array of pulsar position theta [npsr].
             psrs_phi (np.ndarray): An array of pulsar position phi [npsr].
+            n_draws (int, optional): The no. of Noise-Draws to perform noise-marginalization.
+                Gives a warning if NM>1.
             xi (np.ndarray, optional): A list of pulsar pair separations from the OS [npair].
             rho (np.ndarray, optional): A list of pulsar pair correlations [npair].
             sig (np.ndarray, optional): A list of 1-sigma uncertainties on rho [npair].
@@ -102,8 +104,6 @@ class anis_pta():
                 Must be 'power_basis', 'sqrt_power_basis', or 'pixel'.
             use_physical_prior (bool): Whether to use physical priors or not.
             include_pta_monopole (bool, optional): Whether to include the monopole term in the search.
-            include_noise_marginalization (bool, optional) : Whether to perform noise marginalization or not.
-                Gives a warning if True: Is only used in bayesian inferences.
             pair_idx (np.ndarray, optional): An array of pulsar indices for each pair [npair x 2].
 
         Raises:
@@ -135,8 +135,8 @@ class anis_pta():
         self.rho, self.sig, self.os, self.pair_cov = None, None, None, None
         self.pair_ind_N_inv, self.pair_cov_N_inv = None, None
 
-        self.include_noise_marginalization = bool(include_noise_marginalization)
-        if self.include_noise_marginalization:
+        self.n_draws = int(n_draws)
+        if n_draws > 1:
             warnings.warn("Noise-Marginalization only works with Bayesian Inference!!")
         
         #NM = 1 if (rho is None or np.array(rho).ndim == 1) else np.array(rho).shape[0]
@@ -240,7 +240,7 @@ class anis_pta():
             rho, sig, os = np.array(rho), np.array(sig), np.array(os)
             
             # Normal case without noise-marginalization
-            if not self.include_noise_marginalization:
+            if self.n_draws == 1:
                 self.os = os
                 self.rho = rho / self.os
                 self.sig = sig / self.os
@@ -248,18 +248,17 @@ class anis_pta():
                 self.pair_ind_N_inv = self._get_N_inv(pair_cov = False)
 
             # Raise Error if NM and rho, sig or os aren't 2-d, 2-d, 1-d arrays.
-            elif self.include_noise_marginalization and (rho.ndim !=2 or sig.ndim !=2 or os.ndim !=1):
+            elif self.n_draws > 1 and (rho.ndim !=2 or sig.ndim !=2 or os.ndim !=1):
                 raise ValueError("Dimensionality mismatch! Make sure the rho, sig are 2-d arrays of shape [ndraws x npairs] " + 
-                                 "and os is of shape [ndraws]!!")
+                                 "and os is of shape [ndraws] when NM > 1!!")
 
             # Raise Error if NM and rho, sig or os are not 2-d, 2-d, 1-d arrays.
-            elif self.include_noise_marginalization and (rho.shape != sig.shape or os.shape[0] != rho.shape[0] or os.shape[0] != sig.shape[0]):
+            elif self.n_draws > 1 and (rho.shape != sig.shape or os.shape[0] != rho.shape[0] or os.shape[0] != sig.shape[0]):
                 raise ValueError("The shapes of rho and sig doesn't match. Or the length of os doesn't match with no. of rows of rho and sig!! "+ 
-                                 "rho, sig must be 2-d arrays of shape [ndraws x npairs] and os of shape [ndraws]!!")
+                                 "rho, sig must be 2-d arrays of shape [ndraws x npairs] and os of shape [ndraws] when NM > 1!!")
 
             # Noise-marginalization case: scaling by os, the corresponding noise draw.
             else:
-                self.NM = rho.shape[0]
                 self.os = os
                 self.rho = rho / self.os[:, np.newaxis] 
                 self.sig = sig / self.os[:, np.newaxis]
@@ -274,7 +273,7 @@ class anis_pta():
             covariance = np.array(covariance)
             
             # Normal case without noise-marginalization
-            if not self.include_noise_marginalization:
+            if self.n_draws == 1:
                 self.pair_cov = covariance / self.os**2
                 # A handy attribute to be used in likelihood evaluation
                 cov_det_sign, cov_det_val = np.linalg.slogdet(2 * np.pi * self.pair_cov)
@@ -283,18 +282,18 @@ class anis_pta():
                 self.pair_cov_N_inv = self._get_N_inv(pair_cov = True)
 
             # Raise Error if NM and covariance is not 3-d.
-            elif self.include_noise_marginalization and (covariance.ndim != 3):
+            elif self.n_draws > 1 and covariance.ndim != 3:
                 raise ValueError("Dimensionality mismatch! Make sure covariance is a 3-d arrays of shape [ndraws x npairs x npairs] ")
 
             # Raise Error if NM and rho, sig or os are not 2-d, 2-d, 1-d arrays.
-            elif self.include_noise_marginalization and covaraince.shape[0] != rho.shape[0]:
+            elif self.n_draws > 1 and covaraince.shape[0] != rho.shape[0]:
                 raise ValueError("The no. of noise draws in rho, sig and os doesn't match with covariance!!")
 
             # Noise-marginalization case: scaling by os, the corresponding noise draw.
             else:
                 self.pair_cov = covariance / (self.os[:, np.newaxis, np.newaxis] ** 2)
                 # A handy attribute to be used in likelihood evaluation
-                cov_det_sign, cov_det_val = zip(*[np.linalg.slogdet(2 * np.pi * self.pair_cov[n]) for n in range(self.NM)])
+                cov_det_sign, cov_det_val = zip(*[np.linalg.slogdet(2 * np.pi * self.pair_cov[n]) for n in range(self.n_draws)])
                 self._lik_denom = np.array(cov_det_sign)*np.array(cov_det_val)
 
         else:
@@ -1071,9 +1070,9 @@ class anis_pta():
             lik_num = (residual**2) / (self.sig**2) # .ravel() in residual
             lik_denom = 2 * np.pi * (self.sig**2)
 
-            if self.include_noise_marginalization:
-                loglike_each = -0.5 * np.sum(lik_num + np.log(lik_denom), axis=1)
-                loglike = scsp.logsumexp(loglike_each) - np.log(self.NM)
+            if self.perform_noise_marginalization:
+                loglike_per_draw = -0.5 * np.sum(lik_num + np.log(lik_denom), axis=1)
+                loglike = np.sum(loglike_per_draw) - self.n_draws
             else:
                 loglike = -0.5 * np.sum(lik_num + np.log(lik_denom))
 
@@ -1088,7 +1087,8 @@ class anis_pta():
                    norm_log10_Apix_mu=0, norm_log10_Apix_sigma=1, 
                    norm_clm_mu=0, norm_clm_sigma=1,
                    norm_bl0_mu=0, norm_bl0_sigma=1,
-                   norm_blm_amp_mu=0, norm_blm_amp_sigma=1,
+                   norm_blm_amp_mu=0, norm_blm_amp_sigma=1, 
+                   perform_noise_marginalization=False, 
                    outdir='./ptmcmc', resume=False, save_anis_pta=False):
 
         """A method to return the PTMCMC sampler for MAPS to perform bayesian inference.
@@ -1118,6 +1118,8 @@ class anis_pta():
             norm_bl0_sigma (float, optional): sigma for Normal/TruncNormal. Defaults to 1.
             norm_blm_amp_mu (float, optional): mu for Normal/TruncNormal. Defaults to 0.
             norm_blm_amp_sigma (float, optional): sigma for Normal/TruncNormal. Defaults to 1.
+            perform_noise_marginalization (bool, optional): Whether to perform NM.
+                Defaults to False.
             outdir (str, optional): The path to save the chains. Defaults to './ptmcmc'
             resume (bool, optional): Whether to resume a previous run. Defaults to False
             save_anis_pta (bool, optional): Whether to save the anisotropy object for post prcessing help. Defaults to False.
@@ -1215,6 +1217,9 @@ class anis_pta():
             raise ValueError("Select the mode compatible with MAPS!")
 
 
+        #NM?
+        self.perform_noise_marginalization = bool(perform_noise_marginalization)
+        
         # dimension of parameter space
         self.ndim = len(self.param_names)
 
@@ -1259,8 +1264,10 @@ class anis_pta():
             self.priors = saved_priors # reassigning the priors
 
         # Warn for noise-marginalization
-        if self.include_noise_marginalization:
+        if self.perform_noise_marginalization:
             warnings.warn("Performing Noise-Marginalization!!")
+        #elif self.include_joint_noise_likelihood_maximization:
+        #    warnings.warn("Performing Joint-Noise-Likelihood maximization from noise draws!!")
             
 
         return sampler
@@ -1281,7 +1288,7 @@ class anis_hypermodel():
         self.models = models
         self.n_models = len(self.models)
         self.log_weights = log_weights
-
+        
         self.model_names = list(self.models.keys())
 
         model_info = {'models': self.model_names, 
@@ -1299,8 +1306,16 @@ class anis_hypermodel():
         self.param_names = self.param_names[np.argsort(ind)].tolist()
         self.ndim = len(self.param_names)
         ### Also here we have nmodel index at 0.
-        
 
+
+    def _set_pta_if_NM(self):
+
+        for pt in self.models.values():
+            if self.perform_noise_marginalization:
+                pt.perform_noise_marginalization = True
+            else:
+                pt.perform_noise_marginalization = False
+        
     
     def _log_prior_by_mode(self, log10_A2_prior_min, log10_A2_prior_max, log10_Apix_prior_min, log10_Apix_prior_max, 
                            clm_prior_min, clm_prior_max, bl0_prior_min, bl0_prior_max, 
@@ -1442,7 +1457,8 @@ class anis_hypermodel():
 
     def set_ptmcmc_hypermodel(self, log10_A2_prior_min=-2, log10_A2_prior_max=2, log10_Apix_prior_min=-2, log10_Apix_prior_max=2, clm_prior_min=-5, clm_prior_max=5, 
                              bl0_prior_min=-5, bl0_prior_max=5, blm_amp_prior_min=0, blm_amp_prior_max=5, blm_phase_prior_min=0, blm_phase_prior_max=2*np.pi, 
-                             outdir='./ptmcmc', resume=False, groups=None, save_anis_pta_hypermodel=False):
+                             outdir='./ptmcmc', resume=False, groups=None, save_anis_pta_hypermodel=False, 
+                             perform_noise_marginalization=False):
 
         """A method to return the PTMCMC sampler to perform hyper-model sampling.
 
@@ -1476,6 +1492,10 @@ class anis_hypermodel():
         self._log_prior_by_mode(log10_A2_prior_min, log10_A2_prior_max, log10_Apix_prior_min, log10_Apix_prior_max, 
                                 clm_prior_min, clm_prior_max, bl0_prior_min, bl0_prior_max, 
                                 blm_amp_prior_min, blm_amp_prior_max, blm_phase_prior_min, blm_phase_prior_max)
+        
+        #NM?
+        self.perform_noise_marginalization = bool(perform_noise_marginalization)
+        self._set_pta_if_NM()
 
         ### Define unique prior list to sample over and save
         self.priors = [pr for pr in self.models[self.model_names[0]].priors]  # start of param list
@@ -1614,7 +1634,7 @@ class set_bilby(bilby.Likelihood):
 
     def __init__(self, anisotropy_pta, log10_A2_prior_min=-2, log10_A2_prior_max=2, log10_Apix_prior_min=-2, log10_Apix_prior_max=2, clm_prior_min=-5, clm_prior_max=5, 
                  bl0_prior_min=-5, bl0_prior_max=5, blm_amp_prior_min=0, blm_amp_prior_max=5, blm_phase_prior_min=0, blm_phase_prior_max=2*np.pi,
-                 outdir='./bilby', save_anis_pta=False):
+                 perform_noise_marginalization=False, outdir='./bilby', save_anis_pta=False):
 
         """A class to perform bilby bayesian sampling with an anisotropy pta.
 
@@ -1645,6 +1665,7 @@ class set_bilby(bilby.Likelihood):
 
 
         self.anisotropy_pta = anisotropy_pta
+        self.perform_noise_marginalization = perform_noise_marginalization
         if self.anisotropy_pta.mode == 'pixel':
             if self.anisotropy_pta.include_A2_pixel:
                 self.log10_A2_prior_min = log10_A2_prior_min
@@ -1682,7 +1703,7 @@ class set_bilby(bilby.Likelihood):
         self.priors = self._priors()
     
         ### The sampler takes the parameter dictionary here to evaluate likelihood
-        super(set_bilby, self).__init__(parameters={key : self.priors[key].sample() for key in self.priors})
+        super(set_bilby, self).__init__(parameters={key : None for key in self.priors}) #self.priors[key].sample()
         
         self.parameter_keys = list(self.priors.keys())
         self.ndim = len(self.parameter_keys)
@@ -1690,6 +1711,7 @@ class set_bilby(bilby.Likelihood):
         self.anisotropy_pta.param_names = self.parameter_keys
         self.anisotropy_pta.priors = self.priors
         self.anisotropy_pta.ndim = self.ndim
+        self.anisotropy_pta.bilby_likelihood_class = self
         
 
         # save the anisotropy object
@@ -1743,7 +1765,7 @@ class set_bilby(bilby.Likelihood):
         return priors
 
 
-    def log_likelihood(self):
+    def log_likelihood(self):#, parameters=None):
 
         """A method to return the log-likelihood for the set of parameters defined by the mode in anisotropy_pta.
 
@@ -1804,43 +1826,98 @@ class set_bilby(bilby.Likelihood):
         else:
             lik_num = (residual**2) / (self.anisotropy_pta.sig**2)
             lik_denom = 2 * np.pi * (self.anisotropy_pta.sig**2)
-            loglike = -0.5 * np.sum(lik_num + np.log(lik_denom))
+            #if self.anisotropy_pta.include_noise_marginalization:
+            #    loglike_per_draw = -0.5 * np.sum(lik_num + np.log(lik_denom), axis=1)
+            #    loglike = scsp.logsumexp(loglike_per_draw) - np.log(self.anisotropy_pta.NM)
+            if self.perform_noise_marginalization:
+                loglike_per_draw = -0.5 * np.sum(lik_num + np.log(lik_denom), axis=1)
+                loglike = np.sum(loglike_per_draw) - self.anisotropy_pta.n_draws
+                #loglike = scsp.logsumexp(loglike_per_draw) - np.log(self.anisotropy_pta.n_draws)
+            else:
+                loglike = -0.5 * np.sum(lik_num + np.log(lik_denom))
 
 
         return loglike
 
 
     
-    #def noise_log_likelihood(self):
+    def noise_log_likelihood(self):
 
-    #    """A method to return the noise (isotropic) log-likelihood for the given set of parameters defined by the mode in anisotropy_pta.
+        """A method to return the noise (isotropic) log-likelihood for the given set of parameters defined by the mode in anisotropy_pta.
 
-     #   This function works with 'power_basis' for now.
+        This function works with 'power_basis' for now.
 
-     #   Returns:
-      #      float: The noise (isotropic) log-likelihood for the given parameters.
-      #  """
+        Returns:
+            float: The noise (isotropic) log-likelihood for the given parameters.
+        """
         
-       # if self.anisotropy_pta.mode == 'power_basis':
-            
-        #    A2 = 10 ** self.parameters['log10_A2']
-            ### Fixing c_00 = root(4pi)
-         #   clm_00 = np.sqrt(4*np.pi)
-          #  clm_wo_00 = np.array([0.0 for i in range(1, self.anisotropy_pta.clm_size)])
-           # clm = np.concatenate(([clm_00], clm_wo_00))
-        
-           # sim_iso_orf = A2 * (self.anisotropy_pta.Gamma_lm.T @ clm[:, np.newaxis]) ### RP - (ncc x 1)
-            #residual = self.anisotropy_pta.rho[:, np.newaxis] - sim_iso_orf  ### (ncc x 1)
+        if self.anisotropy_pta.mode == 'pixel':
 
-            #if self.anisotropy_pta.pair_cov is not None:
-             #   lik_num = (residual.T @ self.anisotropy_pta.pair_cov_N_inv @ residual)[0][0] # (1 x ncc) @ (ncc x ncc) @ (ncc x 1) => (1 x 1)
-              #  iso_loglike = -0.5 * np.sum(lik_num + self.anisotropy_pta._lik_denom)
-
+            #params = np.array([self.parameters[key] for key in self.parameter_keys])
+            #if self.anisotropy_pta.include_A2_pixel:
+                #A2 = 10 ** params[0]
+                #Apix = 10 ** params[1:]
             #else:
-             #   lik_num = (residual.ravel()**2) / (self.anisotropy_pta.sig**2)
-             #   lik_denom = np.longdouble(self.anisotropy_pta.sig * np.sqrt(2 * np.pi))
-             #   iso_loglike = -0.5 * np.sum(lik_num + np.log(lik_denom))
+                #A2 = 1.0
+                #Apix = 10 ** params
+            
+            map_from_Apix_ones = np.ones(self.anisotropy_pta.npix)
+            
+            #sim_orf = A2 * (self.anisotropy_pta.F_mat @ map_from_Apix_ones)
+            sim_orf = self.anisotropy_pta.F_mat @ map_from_Apix_ones
+
+
+        elif self.anisotropy_pta.mode == 'power_basis':
+            
+            #params = np.array([self.parameters[key] for key in self.parameter_keys])
+            #A2 = 10 ** params[0]
+            ### Fixing c_00 = root(4pi)
+            clm_00 = np.sqrt(4*np.pi)
+            clm = np.array([clm_00, *np.zeros(shape=self.ndim-1)])
+            #clm_wo_00 = params[1:]
+            #clm_wo_00_zeros = np.zeros(len(clm_wo_00))
+            #clm_zeros = np.concatenate(([clm_00], clm_wo_00_zeros))
+
+            sim_orf = self.anisotropy_pta.Gamma_lm.T @ clm
+
+
+        elif self.anisotropy_pta.mode == 'sqrt_power_basis':
+        
+            #params = np.array([self.parameters[key] for key in self.parameter_keys])
+            #A2 = 10 ** params[0]
+            #blm = params[1:]
+            #blm_zeros = np.zeros(len(blm))
+
+            ### Convert blm amp & phase to complex blms (still no '-m'; size:l>=1,m>=0->l + 00) b_00 is set internally here
+            ### Convert complex blms to alms / complex clms (now with '-m'; size:(lmax+1)**2)
+            ### Convert complex clms / alms to real clms and normalize to c_00=root(4pi)
+            #b_00 = 1.0
+            clm_00 = np.sqrt(4*np.pi)
+            clm = np.array([clm_00, *np.zeros(shape=self.anisotropy_pta.clm_size-1)])
+            #clm_zeros = utils.convert_blm_params_to_clm(self.anisotropy_pta, [b_00, *blm_zeros]) # need to pass b_00 here
+            
+            sim_orf = self.anisotropy_pta.Gamma_lm.T @ clm
+            
+            
+        residual = self.anisotropy_pta.rho - sim_orf
+        
+        if self.anisotropy_pta.pair_cov is not None:
+            iso_lik_num = (residual.T @ self.anisotropy_pta.pair_cov_N_inv @ residual) # (1 x ncc) @ (ncc x ncc) @ (ncc x 1) => ()
+            iso_loglike = -0.5 * np.sum(iso_lik_num + self.anisotropy_pta._lik_denom)
+        
+        else:
+            iso_lik_num = (residual**2) / (self.anisotropy_pta.sig**2)
+            iso_lik_denom = 2 * np.pi * (self.anisotropy_pta.sig**2)
+            #if self.anisotropy_pta.include_noise_marginalization:
+            #    loglike_per_draw = -0.5 * np.sum(lik_num + np.log(lik_denom), axis=1)
+            #    loglike = scsp.logsumexp(loglike_per_draw) - np.log(self.anisotropy_pta.NM)
+            if self.perform_noise_marginalization:
+                iso_loglike_per_draw = -0.5 * np.sum(iso_lik_num + np.log(iso_lik_denom), axis=1)
+                iso_loglike = np.sum(iso_loglike_per_draw) - self.anisotropy_pta.n_draws
+                #iso_loglike = scsp.logsumexp(iso_loglike_per_draw) - np.log(self.anisotropy_pta.n_draws)
+            else:
+                iso_loglike = -0.5 * np.sum(iso_lik_num + np.log(iso_lik_denom))
         
 
-        #return iso_loglike
+        return iso_loglike
     
